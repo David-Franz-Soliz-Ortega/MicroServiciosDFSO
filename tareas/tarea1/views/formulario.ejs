@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>Nuevo candidato</h1>
+    <form action="/crearcandidato" method="post">
+        <label for="">CI:</label><br>
+        <input type="number" name="ci"><br>        
+        <label for="">Nombres</label><br>
+        <input type="text" name="nombres"><br>   
+        <label for="">Primer apellido</label><br>
+        <input type="text" name="apellido1">   <br>
+        <label for="">Segundo apellido</label><br>
+        <input type="text" name="apellido2">   <br>
+        <label>Cargo:</label><br>
+        <select name="cargo_id" required>
+            <% cargos.forEach(function(cargo) { %>
+                <option value="<%= cargo.id %>"><%= cargo.nombre %></option>
+            <% }); %>
+        </select><br><br>
+
+        <label>Lugar:</label>
+        <select name="lugar_id" required>
+            <% lugares.forEach(function(lugar) { %>
+                <option value="<%= lugar.id %>"><%= lugar.nombre %></option>
+            <% }); %>
+        </select><br><br>
+
+        <button type="submit">Guardar</button>
+        <a href="/">Cancelar</a>
+    </form>
+</body>
+</html>

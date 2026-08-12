@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title><%= lugar ? 'Editar' : 'Nuevo' %> Lugar</title>
+</head>
+<body>
+    <h1><%= lugar ? 'Editar Lugar' : 'Registrar Nuevo Lugar' %></h1>
+    <form action="<%= lugar ? '/editarlugar/' + lugar.id : '/crearlugar' %>" method="POST">   
+     <label for="">ID:</label><br>
+     <input type="text" name="id" value="<%= lugar ? lugar.id : '' %>" <%= lugar ? 'readonly' : '' %>><br>        
+     <label for="">Nombre del lugar:</label><br>
+     <input type="text" name="nombre" value="<%= lugar ? lugar.nombre : '' %>" required><br><br>  
+     <button type="submit"><%= lugar ? 'Actualizar' : 'Guardar' %></button><br><br>
+     <a href="/lugares">Volver</a>
+    </form>
+</body>
+</html>

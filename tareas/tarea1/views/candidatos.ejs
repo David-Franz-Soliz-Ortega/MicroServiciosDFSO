@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nuevo candidato</title>
+</head>
+<body>
+    <h1>Tabla de candidatos</h1>
+
+    <table border="1">
+    <thead>  
+    <tr>
+    <th>CI</th>
+    <th>Nombres</th>
+    <th>Apellido1</th>
+    <th>Apellido2</th>
+    <th>Cargo</th>
+    <th>Lugar</th>
+    <th>Editar</th>
+    <th>Eliminar</th>
+</tr></thead>  
+    <tbody>
+        <% candidatos.forEach(function(c) { %>
+                <tr>
+                    <td><%= c.ci %></td>
+                    <td><%= c.nombres %></td>
+                    <td><%= c.apellido1 %></td>
+                    <td><%= c.apellido2 %></td>
+                    
+                    <!-- Validamos si existe el cargo/lugar antes de mostrar su nombre para evitar errores -->
+                    <td><%= c.cargo ? c.cargo.nombre : 'Sin cargo' %></td>
+                    <td><%= c.lugar ? c.lugar.nombre : 'Sin lugar' %></td>
+                    
+                    <!-- Botón Editar (Lleva a la ruta GET /editar/:ci) -->
+                    <td>
+                        <a href="/editarcandidato/<%= c.ci %>">
+                            <button>Editar</button>
+                        </a>
+                    </td>
+
+                    <td><form action="/eliminarcandidato/<%= c.ci %>" method="POST" >
+                            <button type="submit" onclick="return confirm('¿Estás seguro de eliminar este candidato?');">
+                                Eliminar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            <% }); %>
+    </tbody>
+</table>
+
+<a href="/crearcandidato">Nuevo Candidato</a><br>
+<a href="/cargos">Ver cargos</a><br>
+<a href="/lugares">Ver lugares</a>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editar Candidato</title>
+</head>
+<body>
+    <h1>Editar Candidato</h1>
+    
+    <form action="/editarcandidato/<%= candidato.ci %>" method="POST">
+        
+        <label>CI:</label><br>
+        <!-- El CI no se debe modificar porque es la llave primaria (readonly) -->
+        <input type="text" name="ci" value="<%= candidato.ci %>" readonly><br><br>
+
+        <label>Nombres:</label><br>
+        <input type="text" name="nombres" value="<%= candidato.nombres %>" required><br><br>
+
+        <label>Apellido 1:</label><br>
+        <input type="text" name="apellido1" value="<%= candidato.apellido1 %>" required><br><br>
+
+        <label>Apellido 2:</label><br>
+        <input type="text" name="apellido2" value="<%= candidato.apellido2 %>"><br><br>
+
+        <label>Cargo:</label><br>
+        <select name="cargo_id" required>
+            <% cargos.forEach(function(c) { %>
+               
+                <option value="<%= c.id %>" <%= candidato.cargo && candidato.cargo.id === c.id ? 'selected' : '' %>>
+                    <%= c.nombre %>
+                </option>
+            <% }); %>
+        </select><br><br>
+
+        <label>Lugar:</label><br>
+        <select name="lugar_id" required>
+            <% lugares.forEach(function(l) { %>
+                <option value="<%= l.id %>" <%= candidato.lugar && candidato.lugar.id === l.id ? 'selected' : '' %>>
+                    <%= l.nombre %>
+                </option>
+            <% }); %>
+        </select><br><br>
+
+        <button type="submit">Actualizar</button><br><br>
+        <a href="/">Volver</a>
+    </form>
+</body>
+</html>

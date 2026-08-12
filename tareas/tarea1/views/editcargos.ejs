@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editar Cargo</title>
+</head>
+<body>
+    <h1>Editar Cargo</h1>
+    
+    <!-- La acción apunta directamente a actualizar este ID -->
+    <form action="/editarcargo/<%= cargo.id %>" method="POST">   
+        
+        <label for="">ID:</label><br>
+        <!-- Mostramos el ID pero lo bloqueamos con 'readonly' para que no lo cambien -->
+        <input type="text" name="id" value="<%= cargo.id %>" readonly><br>        
+        
+        <label for="">Nombre del cargo:</label><br>
+        <input type="text" name="nombre" value="<%= cargo.nombre %>" required><br><br>  
+        
+        <button type="submit"><%= cargo ? 'Actualizar' : 'Guardar' %></button><br><br>
+        <a href="/cargos">Volver</a>
+    </form>
+</body>
+</html>
