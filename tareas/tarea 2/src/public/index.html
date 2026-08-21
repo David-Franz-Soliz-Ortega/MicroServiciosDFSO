@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Tres en Raya</title>
+    <!-- Estilo ultra básico solo para que los botones sean cuadrados -->
+    <style>
+        .casilla {
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            margin: 2px;
+            vertical-align: top;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Tres en Raya Multijugador</h1>
+    
+    <!-- Aquí te dice claramente si eres la X o la O -->
+    <h3 id="mi-identificador" style="color: blue;">Conectando al servidor...</h3>
+    
+    <!-- Aquí te dice si es tu turno o el del rival -->
+    <h2 id="estado-juego" style="color: red;">Esperando...</h2>
+
+    <!-- Tablero simple hecho con botones y saltos de línea -->
+    <div id="tablero">
+        <button class="casilla" onclick="hacerMovimiento(0)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(1)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(2)">-</button>
+        <br>
+        <button class="casilla" onclick="hacerMovimiento(3)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(4)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(5)">-</button>
+        <br>
+        <button class="casilla" onclick="hacerMovimiento(6)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(7)">-</button>
+        <button class="casilla" onclick="hacerMovimiento(8)">-</button>
+    </div>
+
+    <br><br>
+    <button onclick="reiniciarJuego()">Reiniciar Partida</button>
+
+    <script>
+        const conexion = new WebSocket('ws://' + window.location.host);
+        let miSimbolo = '';
+
+        conexion.onmessage = (evento) => {
+            const datos = JSON.parse(evento.data);
+            
+            if (datos.tipo === 'inicio') {
+                miSimbolo = datos.simbolo;
+                document.getElementById('mi-identificador').innerText = "Tú eres el jugador: " + miSimbolo;
+            } 
+            else if (datos.tipo === 'actualizacion') {
+                actualizarInterfaz(datos);
+            } 
+            else if (datos.tipo === 'error') {
+                alert(datos.mensaje);
+            }
+        };
+
+        function hacerMovimiento(indice) {
+            conexion.send(JSON.stringify({ tipo: 'movimiento', indice: indice }));
+        }
+
+        function reiniciarJuego() {
+            conexion.send(JSON.stringify({ tipo: 'reiniciar' }));
+        }
+
+        function actualizarInterfaz(datos) {
+            
+            const casillas = document.getElementsByClassName('casilla');
+            for (let i = 0; i < casillas.length; i++) {
+                casillas[i].innerText = datos.tablero[i] || '-';
+            }
+
+            const textoEstado = document.getElementById('estado-juego');
+            
+            if (datos.cantidadJugadores < 2) {
+                textoEstado.innerText = 'Falta 1 jugador para empezar. Abre otra pestaña.';
+            } else if (datos.ganador) {
+                if (datos.ganador === 'Empate') {
+                    textoEstado.innerText = '¡El juego terminó en Empate!';
+                } else {
+                    textoEstado.innerText = '¡Ha ganado el jugador ' + datos.ganador + '!';
+                }
+            } else {
+           
+                if (miSimbolo === datos.turnoActual) {
+                    textoEstado.innerText = '¡ES TU TURNO! Juega';
+                } else {
+                    textoEstado.innerText = 'Turno del rival... espera';
+                }
+            }
+        }
+    </script>
+
+</body>
+</html>
