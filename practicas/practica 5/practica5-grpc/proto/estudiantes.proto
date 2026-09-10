@@ -1,0 +1,31 @@
+syntax = "proto3"; 
+package estudiantes; 
+
+
+message EstudianteRequest { string ci = 1; } 
+
+message EstudianteResponse { Estudiante estudiante = 1; }
+
+message ListarRequest { 
+  string carrera = 1; // vacío significa: todas las carreras 
+} 
+
+// ¡Un solo servicio con todos los métodos adentro!
+service EstudianteService { 
+  rpc AgregarEstudiante (Estudiante) returns (EstudianteResponse); 
+  rpc ObtenerEstudiante (EstudianteRequest) returns (EstudianteResponse); 
+  rpc ListarEstudiantes (ListarRequest) returns (stream Estudiante); 
+  
+  // Agregamos el método Borrar para que puedas hacer la prueba del error UNIMPLEMENTED
+  rpc BorrarEstudiante (EstudianteRequest) returns (EstudianteResponse);
+}
+
+message Estudiante { 
+  reserved 4; 
+  reserved "carrera"; 
+  string ci = 1; 
+  string nombres = 2; 
+  string apellidos = 3; 
+  string correo = 5; 
+  string carrera_actual = 6; 
+}
