@@ -9,7 +9,7 @@ app.use(express.json());
 
 app.get("/salud", (_req, res) => res.json({ estado: "arriba" }));
 
-app.use("/v1/usuarios", router);
+app.use("/usuarios", router);
 const swaggerDocument = yaml.load("./openapi.yaml");
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 

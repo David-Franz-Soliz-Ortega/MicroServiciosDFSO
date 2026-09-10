@@ -4,7 +4,7 @@ const { conectar } = require('./repositorio');
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3000;
 
 // Conectar a MongoDB antes de iniciar el servidor
 conectar().then(() => {
