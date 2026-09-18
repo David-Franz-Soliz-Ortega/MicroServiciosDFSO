@@ -1,0 +1,21 @@
+{
+  "name": "tarea-3",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@apollo/server": "^5.5.1",
+    "cors": "^2.8.6",
+    "dataloader": "^2.2.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "graphql": "^16.14.2",
+    "graphql-depth-limit": "^1.1.0",
+    "mongodb": "^7.6.0"
+  }
+}
