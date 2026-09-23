@@ -1,0 +1,71 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "API de Gestión de Empleados",
+        "description": "Demostración de API REST con Swagger y MongoDB",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/api/empleados": {
+            "get": {
+                "tags": [
+                    "Empleados"
+                ],
+                "summary": "Listar todos los empleados",
+                "operationId": "843734bf35749b554c0f44b8631d7492",
+                "responses": {
+                    "200": {
+                        "description": "Operación exitosa"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Empleados"
+                ],
+                "summary": "Registrar un nuevo empleado",
+                "operationId": "797a90b42ba6eabad784c56e6287912f",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "nombre",
+                                    "puesto",
+                                    "salario"
+                                ],
+                                "properties": {
+                                    "nombre": {
+                                        "type": "string",
+                                        "example": "María López"
+                                    },
+                                    "puesto": {
+                                        "type": "string",
+                                        "example": "Desarrolladora React"
+                                    },
+                                    "salario": {
+                                        "type": "number",
+                                        "example": 6000.5
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Empleado creado"
+                    }
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Empleados",
+            "description": "Empleados"
+        }
+    ]
+}

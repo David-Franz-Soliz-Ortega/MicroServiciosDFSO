@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package grpc.empleado;
+
+service EmpleadoService {
+
+    rpc ObtenerEmpleado (EmpleadoRequest) returns (EmpleadoResponse);
+}
+
+message EmpleadoRequest {
+    string id = 1; 
+}
+
+message EmpleadoResponse {
+    string id = 1;
+    string nombre = 2;
+    string puesto = 3;
+    double salario = 4;
+}
