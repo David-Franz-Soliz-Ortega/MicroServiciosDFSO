@@ -60,6 +60,84 @@
                     }
                 }
             }
+        },
+        "/api/empleados/{id}": {
+            "put": {
+                "tags": [
+                    "Empleados"
+                ],
+                "summary": "Actualizar los datos de un empleado",
+                "operationId": "3e0e39beedb373ee431d344063fbfe01",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID del empleado",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "nombre": {
+                                        "type": "string",
+                                        "example": "María López"
+                                    },
+                                    "puesto": {
+                                        "type": "string",
+                                        "example": "Líder Técnica"
+                                    },
+                                    "salario": {
+                                        "type": "number",
+                                        "example": 8500
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Empleado actualizado con éxito"
+                    },
+                    "404": {
+                        "description": "Empleado no encontrado"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Empleados"
+                ],
+                "summary": "Eliminar un empleado",
+                "operationId": "5561b5ce018c7ad8a2ccbd86fe1682e9",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID del empleado a eliminar",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Empleado eliminado exitosamente"
+                    },
+                    "404": {
+                        "description": "Empleado no encontrado"
+                    }
+                }
+            }
         }
     },
     "tags": [

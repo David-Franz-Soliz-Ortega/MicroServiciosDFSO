@@ -47,4 +47,66 @@ class EmpleadoController extends Controller
         $empleado = Empleado::create($request->all());
         return response()->json($empleado, 201);
     }
+
+    #[OA\Put(
+        path: '/api/empleados/{id}',
+        summary: 'Actualizar los datos de un empleado',
+        tags: ['Empleados']
+    )]
+    #[OA\Parameter(
+        name: 'id',
+        description: 'ID del empleado',
+        in: 'path',
+        required: true,
+        schema: new OA\Schema(type: 'string')
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            properties: [
+                new OA\Property(property: 'nombre', type: 'string', example: 'María López'),
+                new OA\Property(property: 'puesto', type: 'string', example: 'Líder Técnica'),
+                new OA\Property(property: 'salario', type: 'number', example: 8500.00)
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Empleado actualizado con éxito')]
+    #[OA\Response(response: 404, description: 'Empleado no encontrado')]
+    public function update(Request $request, $id)
+    {
+        $empleado = Empleado::find($id);
+
+        if (!$empleado) {
+            return response()->json(['message' => 'Empleado no encontrado'], 404);
+        }
+
+        $empleado->update($request->all());
+        return response()->json($empleado, 200);
+    }
+
+    #[OA\Delete(
+        path: '/api/empleados/{id}',
+        summary: 'Eliminar un empleado',
+        tags: ['Empleados']
+    )]
+    #[OA\Parameter(
+        name: 'id',
+        description: 'ID del empleado a eliminar',
+        in: 'path',
+        required: true,
+        schema: new OA\Schema(type: 'string')
+    )]
+    #[OA\Response(response: 200, description: 'Empleado eliminado exitosamente')]
+    #[OA\Response(response: 404, description: 'Empleado no encontrado')]
+    public function destroy($id)
+    {
+        $empleado = Empleado::find($id);
+
+        if (!$empleado) {
+            return response()->json(['message' => 'Empleado no encontrado'], 404);
+        }
+
+        $empleado->delete();
+        return response()->json(['message' => 'Empleado eliminado con éxito'], 200);
+    }
 }

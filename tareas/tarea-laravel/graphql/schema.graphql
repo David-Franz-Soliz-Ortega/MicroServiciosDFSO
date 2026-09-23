@@ -1,7 +1,6 @@
-"Tipo de dato fecha que usa Lighthouse"
+
 scalar DateTime @scalar(class: "Nuwave\\Lighthouse\\Schema\\Types\\Scalars\\DateTime")
 
-"1. Definimos la estructura de nuestro recurso"
 type Empleado {
     id: ID!
     nombre: String!
@@ -13,19 +12,29 @@ type Empleado {
 
 "2. Definimos las Consultas (Equivalente al GET)"
 type Query {
-    "Obtiene todos los empleados de la colección en MongoDB"
+
     empleados: [Empleado!]! @all
 
-    "Obtiene un empleado específico por su ID alfanumérico"
     empleado(id: ID! @eq): Empleado @find
 }
 
-"3. Definimos las Mutaciones (Equivalente al POST/PUT/DELETE)"
 type Mutation {
-    "Registra un nuevo empleado"
+
     crearEmpleado(
         nombre: String!
         puesto: String!
         salario: Float!
     ): Empleado! @create
+
+
+    actualizarEmpleado(
+        id: ID!
+        nombre: String
+        puesto: String
+        salario: Float
+    ): Empleado! @update
+
+    eliminarEmpleado(
+        id: ID!
+    ): Empleado @delete
 }
