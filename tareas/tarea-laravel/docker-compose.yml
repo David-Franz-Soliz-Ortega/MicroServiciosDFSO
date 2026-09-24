@@ -1,0 +1,31 @@
+services:
+  # Servicio de la aplicación Laravel
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laravel_app
+    ports:
+      - "8000:8000" # Swagger / GraphQL / REST
+      - "9001:9001" # gRPC
+    env_file:
+      - .env # Toma tu archivo .env local completo automáticamente
+    environment:
+      # Sobreescribimos solo la base de datos para que apunte al contenedor de Mongo
+      - DB_HOST=mongodb
+      - DB_CONNECTION=mongodb
+    depends_on:
+      - mongodb
+    # ELIMINAMOS los volumes temporales para evitar borrar start.sh y el binario rr
+
+  # Servicio de Base de Datos MongoDB versión 7
+  mongodb:
+    image: mongo:7
+    container_name: mongodb_server
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:

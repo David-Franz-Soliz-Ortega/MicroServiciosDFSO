@@ -4,6 +4,6 @@ server:
   command: "php worker.php"
 
 grpc:
-  listen: "tcp://127.0.0.1:9001"
+  listen: "tcp://0.0.0.0:9001"
   proto:
     - "grpc/empleado.proto"

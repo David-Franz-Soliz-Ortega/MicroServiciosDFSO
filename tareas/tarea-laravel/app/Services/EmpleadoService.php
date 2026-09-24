@@ -4,34 +4,104 @@ namespace App\Services;
 use Grpc\Empleado\EmpleadoServiceInterface;
 use Grpc\Empleado\EmpleadoRequest;
 use Grpc\Empleado\EmpleadoResponse;
-use Spiral\RoadRunner\Grpc\ContextInterface;
+use Grpc\Empleado\EmpleadoListResponse;
+use Grpc\Empleado\CrearEmpleadoRequest;
+use Grpc\Empleado\ActualizarEmpleadoRequest;
+use Grpc\Empleado\PBEmpty;
+use Spiral\RoadRunner\GRPC\ContextInterface;
+use App\Models\Empleado;
 
 class EmpleadoService implements EmpleadoServiceInterface 
 {
+    public function ListarEmpleados(ContextInterface $ctx, PBEmpty $in): EmpleadoListResponse
+    {
+        $empleados = Empleado::all();
+        $response = new EmpleadoListResponse();
+        
+        $lista = [];
+        foreach ($empleados as $emp) {
+            $lista[] = new EmpleadoResponse([
+                'id' => (string) $emp->_id,
+                'nombre' => $emp->nombre,
+                'puesto' => $emp->puesto,
+                'salario' => (float) $emp->salario,
+                'created_at' => (string) $emp->created_at,
+                'updated_at' => (string) $emp->updated_at
+            ]);
+        }
+        
+        $response->setEmpleados($lista);
+        return $response;
+    }
+
     public function ObtenerEmpleado(ContextInterface $ctx, EmpleadoRequest $in): EmpleadoResponse 
     {
-        // 1. Extraemos el ID que el cliente envió por gRPC
-        $idBuscado = $in->getId();
+        $empleado = Empleado::find($in->getId());
 
-        // 2. MOCK DATA: Simulamos una base de datos en memoria
-        $baseDeDatosFalsa = [
-            "1" => ["nombre" => "Maria Perez", "salario" => 7500.50],
-            "2" => ["nombre" => "Juan Lopez", "salario" => 5200.00],
-            "3" => ["nombre" => "Carlos Gomez", "salario" => 6100.00]
-        ];
-
-        // 3. Verificamos si el ID existe en nuestro array
-        if (!array_key_exists($idBuscado, $baseDeDatosFalsa)) {
-            throw new \Exception("Empleado no encontrado en el sistema");
+        if (!$empleado) {
+            throw new \Exception("Empleado no encontrado");
         }
 
-        $empleadoEncontrado = $baseDeDatosFalsa[$idBuscado];
-
-        // 4. Retornamos el objeto binario de respuesta (Protobuf)
         return new EmpleadoResponse([
-            'id' => $idBuscado,
-            'nombre' => $empleadoEncontrado['nombre'],
-            'salario' => $empleadoEncontrado['salario']
+            'id' => (string) $empleado->_id,
+            'nombre' => $empleado->nombre,
+            'puesto' => $empleado->puesto,
+            'salario' => (float) $empleado->salario,
+            'created_at' => (string) $empleado->created_at,
+            'updated_at' => (string) $empleado->updated_at
         ]);
+    }
+
+    public function CrearEmpleado(ContextInterface $ctx, CrearEmpleadoRequest $in): EmpleadoResponse
+    {
+        $empleado = Empleado::create([
+            'nombre' => $in->getNombre(),
+            'puesto' => $in->getPuesto(),
+            'salario' => $in->getSalario()
+        ]);
+
+        return new EmpleadoResponse([
+            'id' => (string) $empleado->_id,
+            'nombre' => $empleado->nombre,
+            'puesto' => $empleado->puesto,
+            'salario' => (float) $empleado->salario,
+            'created_at' => (string) $empleado->created_at,
+            'updated_at' => (string) $empleado->updated_at
+        ]);
+    }
+
+    public function ActualizarEmpleado(ContextInterface $ctx, ActualizarEmpleadoRequest $in): EmpleadoResponse
+    {
+        $empleado = Empleado::find($in->getId());
+
+        if (!$empleado) {
+            throw new \Exception("Empleado no encontrado");
+        }
+
+        $empleado->update([
+            'nombre' => $in->getNombre(),
+            'puesto' => $in->getPuesto(),
+            'salario' => $in->getSalario()
+        ]);
+
+        return new EmpleadoResponse([
+            'id' => (string) $empleado->_id,
+            'nombre' => $empleado->nombre,
+            'puesto' => $empleado->puesto,
+            'salario' => (float) $empleado->salario,
+            'created_at' => (string) $empleado->created_at,
+            'updated_at' => (string) $empleado->updated_at
+        ]);
+    }
+
+    public function EliminarEmpleado(ContextInterface $ctx, EmpleadoRequest $in): PBEmpty
+    {
+        $empleado = Empleado::find($in->getId());
+
+        if ($empleado) {
+            $empleado->delete();
+        }
+
+        return new PBEmpty();
     }
 }

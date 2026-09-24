@@ -9,9 +9,9 @@ use Google\Protobuf\Internal\RepeatedField;
 use Google\Protobuf\Internal\GPBUtil;
 
 /**
- * Generated from protobuf message <code>grpc.empleado.EmpleadoResponse</code>
+ * Generated from protobuf message <code>grpc.empleado.ActualizarEmpleadoRequest</code>
  */
-class EmpleadoResponse extends \Google\Protobuf\Internal\Message
+class ActualizarEmpleadoRequest extends \Google\Protobuf\Internal\Message
 {
     /**
      * Generated from protobuf field <code>string id = 1;</code>
@@ -29,14 +29,6 @@ class EmpleadoResponse extends \Google\Protobuf\Internal\Message
      * Generated from protobuf field <code>double salario = 4;</code>
      */
     protected $salario = 0.0;
-    /**
-     * Generated from protobuf field <code>string created_at = 5;</code>
-     */
-    protected $created_at = '';
-    /**
-     * Generated from protobuf field <code>string updated_at = 6;</code>
-     */
-    protected $updated_at = '';
 
     /**
      * Constructor.
@@ -48,8 +40,6 @@ class EmpleadoResponse extends \Google\Protobuf\Internal\Message
      *     @type string $nombre
      *     @type string $puesto
      *     @type float $salario
-     *     @type string $created_at
-     *     @type string $updated_at
      * }
      */
     public function __construct($data = NULL) {
@@ -141,50 +131,6 @@ class EmpleadoResponse extends \Google\Protobuf\Internal\Message
     {
         GPBUtil::checkDouble($var);
         $this->salario = $var;
-
-        return $this;
-    }
-
-    /**
-     * Generated from protobuf field <code>string created_at = 5;</code>
-     * @return string
-     */
-    public function getCreatedAt()
-    {
-        return $this->created_at;
-    }
-
-    /**
-     * Generated from protobuf field <code>string created_at = 5;</code>
-     * @param string $var
-     * @return $this
-     */
-    public function setCreatedAt($var)
-    {
-        GPBUtil::checkString($var, True);
-        $this->created_at = $var;
-
-        return $this;
-    }
-
-    /**
-     * Generated from protobuf field <code>string updated_at = 6;</code>
-     * @return string
-     */
-    public function getUpdatedAt()
-    {
-        return $this->updated_at;
-    }
-
-    /**
-     * Generated from protobuf field <code>string updated_at = 6;</code>
-     * @param string $var
-     * @return $this
-     */
-    public function setUpdatedAt($var)
-    {
-        GPBUtil::checkString($var, True);
-        $this->updated_at = $var;
 
         return $this;
     }

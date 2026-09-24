@@ -1,0 +1,164 @@
+=============================================================================
+             GUÍA EXPLICATIVA: SWAGGER, GRAPHQL Y GRPC EN LARAVEL
+=============================================================================
+
+Este documento explica las modificaciones realizadas en tu código y detalla 
+para qué sirve cada bloque/línea, abarcando las 3 tecnologías implementadas.
+
+-----------------------------------------------------------------------------
+1. SWAGGER (Documentación REST)
+-----------------------------------------------------------------------------
+Archivo principal modificado: `app/Http/Controllers/Api/EmpleadoController.php`
+
+En Laravel, usamos atributos de PHP (líneas que empiezan con `#[...]`) para 
+que la librería L5-Swagger lea nuestro código y genere una página web visual. 
+Añadimos el método `show` (GET por ID):
+
+    #[OA\Get( // Define que esta ruta responderá a una petición HTTP GET
+        path: '/api/empleados/{id}', // La URL exacta a consultar
+        summary: 'Obtener un empleado por ID', // Breve descripción en la UI
+        tags: ['Empleados'] // Agrupa la ruta bajo la categoría "Empleados"
+    )]
+    #[OA\Parameter( // Define un parámetro dinámico en la URL
+        name: 'id', // El nombre del parámetro (coincide con {id})
+        description: 'ID del empleado', 
+        in: 'path', // Indica que va en la URL (path), no en el body
+        required: true, // Es obligatorio para que funcione
+        schema: new OA\Schema(type: 'string') // El tipo de dato es cadena de texto
+    )]
+    #[OA\Response(response: 200, description: 'Empleado encontrado')] // Caso de éxito
+    #[OA\Response(response: 404, description: 'Empleado no encontrado')] // Caso de error
+    public function show($id)
+    {
+        $empleado = Empleado::find($id); // Busca el empleado en MongoDB por su ID
+
+        if (!$empleado) {
+            // Si no existe, retorna error 404 en formato JSON
+            return response()->json(['message' => 'Empleado no encontrado'], 404);
+        }
+
+        // Si existe, retorna los datos del empleado y un código 200 de éxito
+        return response()->json($empleado, 200);
+    }
+
+
+-----------------------------------------------------------------------------
+2. GRAPHQL (API flexible)
+-----------------------------------------------------------------------------
+Archivo principal: `graphql/schema.graphql`
+GraphQL no usa múltiples URLs como REST, usa una sola y tú pides exactamente 
+lo que necesitas. Tu código usa una librería llamada "Lighthouse".
+
+    type Empleado {  // Define la estructura de tu tabla/colección
+        id: ID!      // "!" significa que es un campo obligatorio (nunca nulo)
+        nombre: String!
+        puesto: String!
+        salario: Float!
+    }
+
+    type Query { // Las "Query" son equivalentes al GET de REST (solo lectura)
+        
+        // Retorna un arreglo de Empleados. 
+        // @all es una directiva mágica de Lighthouse que por debajo hace "Empleado::all()"
+        empleados: [Empleado!]! @all 
+
+        // Retorna un solo Empleado filtrando por ID. 
+        // @eq le dice que haga "where id = lo que mandó el usuario"
+        // @find ejecuta la búsqueda en base de datos.
+        empleado(id: ID! @eq): Empleado @find
+    }
+
+    type Mutation { // Las "Mutation" son equivalentes a POST, PUT y DELETE (escritura)
+        
+        // @create intercepta los argumentos y hace "Empleado::create([datos])"
+        crearEmpleado(nombre: String!, puesto: String!, salario: Float!): Empleado! @create
+        
+        // @update busca el ID provisto y actualiza los campos enviados
+        actualizarEmpleado(id: ID!, nombre: String, puesto: String, salario: Float): Empleado! @update
+        
+        // @delete busca y elimina de la base de datos
+        eliminarEmpleado(id: ID!): Empleado @delete
+    }
+
+
+-----------------------------------------------------------------------------
+3. GRPC (Comunicación de alta velocidad Cliente-Servidor)
+-----------------------------------------------------------------------------
+gRPC se compone de tres partes: El "Contrato" (archivo .proto), el Servidor 
+(quien procesa los datos) y el Cliente (quien pide los datos).
+
+A) EL CONTRATO: `grpc/empleado.proto`
+Define el servicio independientemente del lenguaje de programación.
+
+    syntax = "proto3"; // Versión del lenguaje de Google Protobuf
+    package grpc.empleado; // Nombre del paquete interno
+
+    service EmpleadoService { 
+        // Define una función remota (rpc). 
+        // Recibe "EmpleadoRequest" y devuelve "EmpleadoResponse"
+        rpc ObtenerEmpleado (EmpleadoRequest) returns (EmpleadoResponse);
+    }
+
+    // Un "message" es el equivalente a una clase o un JSON de datos
+    message EmpleadoRequest {
+        string id = 1; // "1" no es el valor, es el orden interno del campo en binario
+    }
+    
+B) EL SERVIDOR: `app/Services/EmpleadoService.php`
+Es el código de Laravel/Roadrunner que responde a la llamada gRPC.
+
+    public function ObtenerEmpleado(ContextInterface $ctx, EmpleadoRequest $in): EmpleadoResponse 
+    {
+        // 1. $in->getId() saca el ID que el cliente metió en el mensaje binario
+        $empleado = Empleado::find($in->getId()); 
+
+        if (!$empleado) {
+            throw new \Exception("Empleado no encontrado");
+        }
+
+        // 2. Construimos y retornamos la respuesta en formato de la clase generada por Protobuf
+        return new EmpleadoResponse([
+            'id' => (string) $empleado->_id,
+            'nombre' => $empleado->nombre,
+            'puesto' => $empleado->puesto,
+            'salario' => (float) $empleado->salario
+        ]);
+    }
+
+C) EL CLIENTE: `app/Grpc/Empleado/EmpleadoServiceClient.php`
+Esta clase la creamos extendiendo `\Grpc\BaseStub`. Es la que se encarga 
+de agarrar los datos, convertirlos a binario y mandarlos por HTTP/2 al servidor.
+
+    // Esta función llama a la ruta mágica /grpc.empleado.EmpleadoService/ObtenerEmpleado 
+    // y decodifica la respuesta binaria de vuelta a PHP.
+    public function ObtenerEmpleado(\Grpc\Empleado\EmpleadoRequest $argument, $metadata = [], $options = []) {
+        return $this->_simpleRequest('/grpc.empleado.EmpleadoService/ObtenerEmpleado',
+        $argument,
+        ['\Grpc\Empleado\EmpleadoResponse', 'decode'],
+        $metadata, $options);
+    }
+
+D) EL PUENTE (DEMO CLIENTE): `app/Http/Controllers/GrpcDemoController.php`
+Para poder probar el cliente, usamos este controlador normal. Un usuario hace 
+una petición REST, pero internamente Laravel se conecta por gRPC al servidor.
+
+    public function show($id)
+    {
+        // 1. Instanciamos el mensaje Request de gRPC
+        $req = new EmpleadoRequest();
+        $req->setId($id); // Le seteamos el ID
+
+        // 2. Usamos el cliente para enviarlo al servidor gRPC (puerto 50051)
+        // El "wait()" es obligatorio en PHP para esperar la respuesta asíncrona
+        list($response, $status) = $this->cliente->ObtenerEmpleado($req)->wait();
+
+        if ($status->code !== \Grpc\STATUS_OK) {
+            return response()->json(['error' => 'Empleado no encontrado por gRPC'], 404);
+        }
+
+        // 3. Devolvemos los datos al usuario extrayéndolos de la respuesta binaria
+        return response()->json([
+            'id' => $response->getId(),
+            'nombre' => $response->getNombre()
+        ]);
+    }

@@ -2,13 +2,34 @@ syntax = "proto3";
 
 package grpc.empleado;
 
-service EmpleadoService {
+option php_namespace = "Grpc\\Empleado";
+option php_metadata_namespace = "GPBMetadata\\Empleado";
 
+service EmpleadoService {
+    rpc ListarEmpleados (Empty) returns (EmpleadoListResponse);
     rpc ObtenerEmpleado (EmpleadoRequest) returns (EmpleadoResponse);
+    rpc CrearEmpleado (CrearEmpleadoRequest) returns (EmpleadoResponse);
+    rpc ActualizarEmpleado (ActualizarEmpleadoRequest) returns (EmpleadoResponse);
+    rpc EliminarEmpleado (EmpleadoRequest) returns (Empty);
 }
+
+message Empty {}
 
 message EmpleadoRequest {
     string id = 1; 
+}
+
+message CrearEmpleadoRequest {
+    string nombre = 1;
+    string puesto = 2;
+    double salario = 3;
+}
+
+message ActualizarEmpleadoRequest {
+    string id = 1;
+    string nombre = 2;
+    string puesto = 3;
+    double salario = 4;
 }
 
 message EmpleadoResponse {
@@ -16,4 +37,10 @@ message EmpleadoResponse {
     string nombre = 2;
     string puesto = 3;
     double salario = 4;
+    string created_at = 5;
+    string updated_at = 6;
+}
+
+message EmpleadoListResponse {
+    repeated EmpleadoResponse empleados = 1;
 }

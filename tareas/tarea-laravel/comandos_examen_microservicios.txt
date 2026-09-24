@@ -1,0 +1,115 @@
+=============================================================================
+             GUÍA COMPLETA DE COMANDOS - EXAMEN DE MICROSERVICIOS
+=============================================================================
+
+-----------------------------------------------------------------------------
+1. DOCKER (Contenedores, Imágenes y Volúmenes)
+-----------------------------------------------------------------------------
+# Construir una imagen (el punto al final es importante)
+docker build -t nombre_imagen:version .
+
+# Ejecutar un contenedor
+docker run -d -p 8080:8000 --name nombre_contenedor nombre_imagen:version
+
+# Ejecutar usando VOLUMEN de datos
+docker run -d -p 27017:27017 -v mi_volumen:/data/db --name mi_mongo mongo:7
+
+# Docker Compose: Levantar / Bajar servicios
+docker-compose up -d --build
+docker-compose down
+
+
+-----------------------------------------------------------------------------
+2. CREACIÓN BÁSICA Y MONGODB
+-----------------------------------------------------------------------------
+
+*** LARAVEL ***
+# Crear proyecto
+composer create-project laravel/laravel mi_api
+# Levantar servidor
+php artisan serve
+# Instalar librería de MongoDB
+composer require mongodb/laravel-mongodb
+# Crear Modelo, Migración y Controlador API (Todo en uno)
+php artisan make:model NombreModulo -m -c --api
+# (Opcional) Crear solo el controlador de tipo API
+php artisan make:controller Api/MiController --api
+
+*** NODE.JS + EXPRESS ***
+# Inicializar proyecto
+npm init -y
+# Instalar Express (Framework) y Nodemon (Desarrollo)
+npm install express
+npm install -D nodemon
+# Instalar librería de MongoDB (Mongoose)
+npm install mongoose
+
+
+-----------------------------------------------------------------------------
+3. INTEGRACIÓN DE SWAGGER (Documentación REST)
+-----------------------------------------------------------------------------
+
+*** LARAVEL ***
+# 1. Instalar librería L5-Swagger
+composer require darkaonline/l5-swagger
+# 2. Publicar configuración (crea archivos base de swagger)
+php artisan vendor:publish --provider "L5Swagger\L5SwaggerServiceProvider"
+# 3. Comando para compilar y generar la vista Swagger después de poner anotaciones
+php artisan l5-swagger:generate
+
+*** NODE.JS + EXPRESS ***
+# 1. Instalar Swagger UI y JSDoc
+npm install swagger-ui-express swagger-jsdoc
+# (Se integra añadiendo el middleware swaggerUI.serve y swaggerUI.setup en index.js)
+
+
+-----------------------------------------------------------------------------
+4. INTEGRACIÓN DE GRAPHQL
+-----------------------------------------------------------------------------
+
+*** LARAVEL ***
+# 1. Instalar la librería Lighthouse (estándar GraphQL en Laravel)
+composer require nuwave/lighthouse
+# 2. Publicar el archivo schema.graphql base
+php artisan vendor:publish --tag=lighthouse-schema
+# (Opcional) Imprimir/Verificar el esquema completo generado
+php artisan lighthouse:print-schema
+
+*** NODE.JS + EXPRESS ***
+# 1. Instalar Apollo Server (o express-graphql) y la base de graphql
+npm install @apollo/server graphql cors
+# (Requiere definir "typeDefs" y "resolvers" en el código JS)
+
+
+-----------------------------------------------------------------------------
+5. INTEGRACIÓN DE GRPC (RPC Binario Cliente-Servidor)
+-----------------------------------------------------------------------------
+
+*** LARAVEL ***
+# 1. Instalar librerías nativas y el puente RoadRunner para gRPC
+composer require grpc/grpc spiral/roadrunner-grpc
+
+# 2. Integración del archivo .exe (protoc.exe y rr.exe)
+# - Debes copiar el archivo `protoc.exe` (compilador de Google) a la carpeta raíz.
+# - Debes copiar el archivo `rr.exe` (RoadRunner) a la carpeta raíz.
+
+# 3. Comando para compilar tu archivo .proto y generar las clases PHP
+# (Asegúrate de tener tu archivo en una carpeta llamada grpc/archivo.proto)
+.\protoc.exe --php_out=app/Grpc -I grpc grpc/tu_archivo.proto
+
+# 4. Levantar el servidor gRPC de RoadRunner (requiere archivo .rr.yaml y worker.php)
+.\rr.exe serve
+
+
+*** NODE.JS + EXPRESS ***
+# 1. Instalar librerías de gRPC
+# - @grpc/grpc-js: Es el motor puro en JS.
+# - @grpc/proto-loader: Permite leer el archivo .proto en tiempo real sin compilarlo.
+npm install @grpc/grpc-js @grpc/proto-loader
+
+# 2. Integración del compilador en Node
+# A diferencia de Laravel/PHP o C++, Node.js *NO NECESITA* obligatoriamente un archivo protoc.exe.
+# La librería proto-loader carga el archivo .proto dinámicamente en tiempo de ejecución.
+# Ejemplo en código:
+# const protoLoader = require('@grpc/proto-loader');
+# const packageDefinition = protoLoader.loadSync('./grpc/tu_archivo.proto');

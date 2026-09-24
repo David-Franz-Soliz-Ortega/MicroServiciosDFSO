@@ -25,6 +25,31 @@ class EmpleadoController extends Controller
         return response()->json(Empleado::all(), 200);
     }
 
+    #[OA\Get(
+        path: '/api/empleados/{id}',
+        summary: 'Obtener un empleado por ID',
+        tags: ['Empleados']
+    )]
+    #[OA\Parameter(
+        name: 'id',
+        description: 'ID del empleado',
+        in: 'path',
+        required: true,
+        schema: new OA\Schema(type: 'string')
+    )]
+    #[OA\Response(response: 200, description: 'Empleado encontrado')]
+    #[OA\Response(response: 404, description: 'Empleado no encontrado')]
+    public function show($id)
+    {
+        $empleado = Empleado::find($id);
+
+        if (!$empleado) {
+            return response()->json(['message' => 'Empleado no encontrado'], 404);
+        }
+
+        return response()->json($empleado, 200);
+    }
+
     #[OA\Post(
         path: '/api/empleados',
         summary: 'Registrar un nuevo empleado',
