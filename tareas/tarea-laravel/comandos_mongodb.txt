@@ -1,0 +1,45 @@
+================================================
+COMANDOS BÁSICOS DE MONGODB (mongosh)
+================================================
+
+--- GESTIÓN DE BASES DE DATOS Y COLECCIONES ---
+show dbs                        -> Muestra todas las bases de datos.
+use <nombre_bd>                 -> Cambia a una base de datos específica o la crea.
+show collections                -> Muestra las colecciones de la BD actual.
+db.dropDatabase()               -> Elimina la base de datos actual.
+
+--- OPERACIONES CRUD ---
+
+1. CREAR (Insertar)
+db.coleccion.insertOne({ nombre: "Juan", edad: 30 })
+db.coleccion.insertMany([{ nombre: "Ana" }, { nombre: "Luis" }])
+
+2. LEER (Buscar)
+db.coleccion.find()                         -> Devuelve todos los documentos.
+db.coleccion.find({ nombre: "Juan" })       -> Busca con filtros específicos.
+db.coleccion.findOne({ nombre: "Juan" })    -> Devuelve solo el primer documento que coincida.
+
+3. ACTUALIZAR
+db.coleccion.updateOne({ nombre: "Juan" }, { $set: { edad: 31 } })
+db.coleccion.updateMany({ edad: { $lt: 30 } }, { $set: { joven: true } })
+
+4. BORRAR
+db.coleccion.deleteOne({ nombre: "Juan" })
+db.coleccion.deleteMany({ edad: { $gte: 100 } })
+
+================================================
+HERRAMIENTAS DE MONGODB (CMD / POWERSHELL)
+================================================
+Nota: Estos comandos se ejecutan en la terminal de Windows, no dentro de mongosh.
+
+IMPORTAR DATOS:
+mongoimport --db=nombre_bd --collection=nombre_coleccion --file=archivo.json --jsonArray
+
+EXPORTAR DATOS:
+mongoexport --db=nombre_bd --collection=nombre_coleccion --out=archivo_exportado.json
+
+HACER COPIA DE SEGURIDAD (Backup):
+mongodump --db=nombre_bd --out=carpeta_destino
+
+RESTAURAR COPIA DE SEGURIDAD:
+mongorestore --db=nombre_bd carpeta_backup/nombre_bd

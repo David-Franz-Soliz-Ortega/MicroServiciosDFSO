@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package clinica.medicos.v1;
+
+
+service ServicioMedicos {
+  rpc ObtenerMedico (MedicReq) returns (MedicRes);
+  rpc ListarMedico (ListaMedicoReq) returns (ListaMedicoRes);
+  rpc ListarHorariosDisponible (HorarioReq) returns (ListaHorariosRes);
+  rpc ReservarHorario (ReservarHorarioReq) returns (ReservarHorarioRes);
+  rpc LiberarHorario (LiberarHorarioReq) returns (LiberarHorarioRes);
+}
+
+
+message MedicReq {
+  string medico_id = 1;
+}
+
+message MedicRes {
+  string medico_id = 1;
+  string nombre = 2;
+  string especialidad = 3;
+  string matriculaunica = 4;
+}
+
+message ListaMedicoReq {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListaMedicoRes {
+  repeated MedicRes medicos = 1;
+}
+
+
+message HorarioReq {
+  string medico_id = 1;
+  string fecha = 2; // Formato YYYY-MM-DD
+}
+
+message HorarioSlot {
+  string horario_id = 1;
+  string hora_inicio = 2; // HH:MM:SS o HH:MM
+  string hora_fin = 3;     // HH:MM:SS o HH:MM
+  bool disponible = 4;
+}
+
+message ListaHorariosRes {
+  repeated HorarioSlot horarios = 1;
+}
+
+message ReservarHorarioReq {
+  string horario_id = 1;
+  string paciente_id = 2;
+}
+
+message ReservarHorarioRes {
+  bool exito = 1;
+  string mensaje = 2;
+}
+
+message LiberarHorarioReq {
+  string horario_id = 1;
+}
+
+message LiberarHorarioRes {
+  bool exito = 1;
+  string mensaje = 2;
+}

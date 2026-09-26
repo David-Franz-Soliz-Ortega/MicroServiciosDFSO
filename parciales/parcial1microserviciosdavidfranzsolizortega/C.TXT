@@ -1,0 +1,9 @@
+CREATE TABLE pacientes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ci VARCHAR(10) UNIQUE,
+    nombre VARCHAR(40),
+    apellido VARCHAR(80),
+    fecha_nacimiento DATE,
+    telefono VARCHAR(20),
+    seguro VARCHAR(10)
+);

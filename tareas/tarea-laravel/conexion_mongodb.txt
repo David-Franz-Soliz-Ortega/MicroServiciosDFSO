@@ -1,0 +1,113 @@
+================================================
+CONEXIÓN A MONGODB: NODE.JS Y LARAVEL
+================================================
+
+------------------------------------------------
+1. NODE.JS (Usando Mongoose) - Recomendado
+------------------------------------------------
+Mongoose es la librería (ODM) más popular para conectar Node.js con MongoDB.
+
+Instalación en la terminal:
+npm install mongoose
+
+Código de conexión (ejemplo en index.js, app.js o server.js):
+
+const mongoose = require('mongoose');
+
+// URL de conexión a tu servidor local
+const url = 'mongodb://127.0.0.1:27017/nombre_de_tu_base_datos';
+
+mongoose.connect(url)
+  .then(() => {
+    console.log('✅ Conexión exitosa a MongoDB con Mongoose');
+  })
+  .catch((error) => {
+    console.error('❌ Error al conectar a MongoDB:', error);
+  });
+
+
+------------------------------------------------
+2. NODE.JS (Usando el Driver Nativo 'mongodb')
+------------------------------------------------
+Si no quieres usar Mongoose, puedes usar el driver oficial directo.
+
+Instalación en la terminal:
+npm install mongodb
+
+Código de conexión:
+
+const { MongoClient } = require('mongodb');
+
+const url = 'mongodb://127.0.0.1:27017';
+const client = new MongoClient(url);
+
+async function conectar() {
+  try {
+    await client.connect();
+    console.log('✅ Conectado correctamente a MongoDB');
+    
+    // Seleccionar la base de datos
+    const db = client.db('nombre_de_tu_base_datos');
+    
+  } catch (error) {
+    console.error('❌ Error al conectar:', error);
+  }
+}
+conectar();
+
+
+------------------------------------------------
+3. LARAVEL (PHP)
+------------------------------------------------
+Laravel usa MySQL/PostgreSQL por defecto. Para usar MongoDB con Eloquent de manera limpia, necesitas instalar el paquete oficial mantenido por MongoDB.
+
+Nota: Requiere que tengas la extensión "mongodb" habilitada en tu archivo php.ini.
+
+Paso 1: Instalar el paquete por consola:
+composer require mongodb/laravel-mongodb
+
+Paso 2: Configurar tu archivo ".env" cambiando la conexión:
+DB_CONNECTION=mongodb
+DB_HOST=127.0.0.1
+DB_PORT=27017
+DB_DATABASE=nombre_de_tu_base_datos
+DB_USERNAME=
+DB_PASSWORD=
+
+Paso 3: Configurar en "config/database.php"
+Ve al arreglo 'connections' y agrega el driver de MongoDB:
+
+'connections' => [
+    // ... aquí estarán mysql, pgsql, etc.
+
+    'mongodb' => [
+        'driver'   => 'mongodb',
+        'host'     => env('DB_HOST', '127.0.0.1'),
+        'port'     => env('DB_PORT', 27017),
+        'database' => env('DB_DATABASE'),
+        'username' => env('DB_USERNAME'),
+        'password' => env('DB_PASSWORD'),
+        'options'  => [
+            'database' => env('DB_AUTHENTICATION_DATABASE', 'admin'), // opcional
+        ],
+    ],
+],
+
+Paso 4: Actualizar tus Modelos
+En lugar de extender del "Model" normal de Illuminate, debes extender del "Model" de MongoDB.
+
+<?php
+
+namespace App\Models;
+
+// IMPORTANTE: Usar la clase del paquete en lugar de la tradicional
+use MongoDB\Laravel\Eloquent\Model;
+
+class Usuario extends Model
+{
+    // Indicar que use la conexión de MongoDB
+    protected $connection = 'mongodb';
+    
+    // Indicar el nombre de la colección (opcional, Laravel lo pluraliza por defecto)
+    protected $collection = 'usuarios';
+}
