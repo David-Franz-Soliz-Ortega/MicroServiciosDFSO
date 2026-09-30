@@ -1,3 +1,4 @@
+
 const express = require("express");
 const { router } = require("./usuarios.rutas");
 const { fallo } = require("./errores");
@@ -6,18 +7,14 @@ const yaml = require("yamljs");
 
 const app = express();
 app.use(express.json());
-
 app.get("/salud", (_req, res) => res.json({ estado: "arriba" }));
-
-app.use("/usuarios", router);
 const swaggerDocument = yaml.load("./openapi.yaml");
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.use((_req, res) => {
   fallo(res, 404, "RUTA_NO_ENCONTRADA", "Ruta inexistente");
-});
-
-app.use((err, _req, res, _next) => {
+  
+  app.use((err, _req, res, _next) => {
   const malJson = err.type === "entity.parse.failed";
   console.error(err);
   res.status(malJson ? 400 : 500).json({
@@ -29,3 +26,6 @@ app.use((err, _req, res, _next) => {
 });
 
 module.exports = app;
+  });
+
+app.use("/usuarios", router);

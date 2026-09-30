@@ -6,8 +6,8 @@ app.use(express.json());
 const inscripciones = [];
 app.post("/inscripciones", (req, res) => {
 const { estudiante, correo, curso } = req.body;
-if (!estudiante || !correo || !curso) {
-return res.status(400).json({ error: "faltan datos obligatorios" });
+if (!req.body.nombre || !req.body.correo || !req.body.curso) {
+    return res.status(400).json({ error: "faltan datos obligatorios" });
 }
 const registro = { id: "INS-" + Date.now(), estudiante, correo, curso };
 inscripciones.push(registro);
@@ -24,3 +24,6 @@ console.log("[inscripciones] API en el puerto " + process.env.PORT)))
 console.error("no se pudo conectar al broker:", e.message);
 process.exit(1);
 });
+
+
+
