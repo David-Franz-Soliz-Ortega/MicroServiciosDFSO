@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  db:
+    # 1. Cambia 'tu_imagen_descargada:tag' por el nombre exacto que aparece al ejecutar 'docker images'
+    image: mysql:8
+    pull_policy: never # 2. Fuerza a Docker a usar solo la imagen local
+    container_name: parcial1_mysql # 3. Se cambió '/' por '_'
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: admin123
+      MYSQL_DATABASE: hospital
+    ports:
+      - "3006:3006"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: adminer_web
+    restart: always
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3006
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:
+   name: mysqldata
