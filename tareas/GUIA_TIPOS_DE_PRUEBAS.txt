@@ -1,0 +1,153 @@
+================================================================================
+GUIA COMPLETA DE PRUEBAS EN LARAVEL PARA MICROSERVICIOS
+================================================================================
+
+Esta guia detalla la definicion, proposito, implementacion en Laravel y forma de
+ejecutar cada uno de los 5 conceptos clave requeridos en tu materia:
+
+1. PRUEBA UNITARIA (UNIT TEST)
+2. PRUEBA DE INTEGRACION (INTEGRATION TEST)
+3. PRUEBA DE CONTRATO (CONTRACT TEST)
+4. CONTENEDOR EFIMERO (EPHEMERAL CONTAINER / TESTCONTAINERS)
+5. COBERTURA DE CODIGO (CODE COVERAGE)
+
+================================================================================
+1. PRUEBA UNITARIA
+================================================================================
+* DEFINICION:
+  Verifica una funcion o clase de manera completamente aislada, sin interactuar
+  con bases de datos ni servicios de red. Se mide en milisegundos.
+
+* ARCHIVO EN EL PROYECTO:
+  - Clase bajo prueba: app/Services/EmpleadoMetricasService.php
+  - Archivo de prueba: tests/Unit/EmpleadoAgregacionesTest.php
+
+* QUE HACE:
+  Instancia el servicio directamente en memoria con un conjunto de datos controlado
+  y evalua las agregaciones matematicas (SUM, AVG, GROUP BY, MAX) y casos borde (arrays vacios).
+  No levanta conexiones a la base de datos ni hace peticiones HTTP.
+
+* COMANDO PARA EJECUTAR:
+  php artisan test --filter=EmpleadoAgregacionesTest
+
+* TIEMPO DE RESPUESTA:
+  Menos de 0.1 segundos (decenas de milisegundos).
+
+================================================================================
+2. PRUEBA DE INTEGRACION
+================================================================================
+* DEFINICION:
+  Verifica que dos o mas piezas del sistema funcionen correctamente juntas:
+  el endpoint HTTP, el controlador, el modelo Eloquent y la base de datos real.
+
+* ARCHIVO EN EL PROYECTO:
+  - tests/Feature/EmpleadoIntegracionTest.php
+
+* QUE HACE:
+  1. Realiza una peticion real POST /api/empleados enviando un JSON.
+  2. El Endpoint interactua con el EmpleadoController.
+  3. El controlador llama al modelo Empleado (ODM MongoDB).
+  4. Persiste el registro en la base de datos real.
+  5. Consulta inmediatamente el endpoint GET /api/empleados/{id} para validar que
+     se recupera con exito de la base de datos.
+  6. Realiza un DELETE y confirma que el registro desaparece de la base de datos.
+
+* COMANDO PARA EJECUTAR:
+  php artisan test --filter=EmpleadoIntegracionTest
+
+================================================================================
+3. PRUEBA DE CONTRATO (CONTRACT TESTING)
+================================================================================
+* DEFINICION:
+  Verifica que el mensaje que un servicio produce siga siendo el que el otro
+  servicio espera consumir. Evita romper clientes cuando la API evoluciona.
+
+* ARCHIVO EN EL PROYECTO:
+  - tests/Feature/EmpleadoContratoTest.php
+
+* QUE HACE:
+  A) Contrato REST (JSON Schema):
+     Valida que la respuesta del endpoint cumpla la estructura exacta acordada
+     (assertJsonStructure: 'nombre', 'puesto', 'salario', 'created_at', etc.),
+     que los tipos de datos sean estrictos (assertIsString, assertIsNumeric) y
+     que campos sensibles (como contrasenas) nunca se expongan en el contrato publico.
+  B) Contrato gRPC / Protobuf:
+     Valida que la estructura del mensaje binario compilado (EmpleadoResponse y
+     CrearEmpleadoRequest) cumpla con los tipos y campos del archivo .proto.
+
+* COMANDO PARA EJECUTAR:
+  php artisan test --filter=EmpleadoContratoTest
+
+================================================================================
+4. CONTENEDOR EFIMERO (TESTCONTAINERS / EPHEMERAL CONTAINERS)
+================================================================================
+* DEFINICION:
+  Base de datos real que la propia suite de pruebas levanta en un contenedor al
+  empezar y destruye automaticamente al terminar, sin depender de instalaciones
+  locales previas ni dejar residuos.
+
+* ARCHIVO EN EL PROYECTO:
+  - tests/Feature/EphemeralContainerTest.php
+
+* QUE HACE:
+  1. setUpBeforeClass():
+     - Ejecuta "docker run -d --rm --name mongo_ephemeral_test -p 27019:27017 mongo:latest".
+     - Espera (health-check) hasta que el motor de MongoDB responda el ping.
+  2. test_persistencia_y_agregacion_en_contenedor_efimero():
+     - Conecta dinamicamente Laravel al puerto 27019.
+     - Inserta empleados y ejecuta un pipeline real de agregacion ($group, $avg, $sum).
+     - Valida los calculos directamente sobre el contenedor temporal.
+  3. tearDownAfterClass():
+     - Ejecuta "docker stop mongo_ephemeral_test".
+     - Al tener la bandera --rm, Docker elimina el contenedor de inmediato. Cero residuos.
+
+* COMANDO PARA EJECUTAR:
+  php artisan test --filter=EphemeralContainerTest
+
+================================================================================
+5. COBERTURA DE CODIGO (CODE COVERAGE)
+================================================================================
+* DEFINICION:
+  Porcentaje de lineas o ramas de codigo que fueron ejecutadas durante las pruebas.
+  "Dice que se ejecuto, nunca si se verifico bien."
+
+* COMANDOS EN LARAVEL:
+  - Reporte en consola:
+      php artisan test --coverage
+  - Reporte HTML detallado:
+      php vendor/phpunit/phpunit/phpunit --coverage-html coverage-report
+  - Reporte de cobertura minima obligatoria (ejemplo 80%):
+      php artisan test --coverage --min=80
+
+* REQUISITO TECNICO EN PHP:
+  Para que PHP pueda medir cobertura requiere una extension de depuracion/profiling:
+  - PCOV (muy rapido, disenado para testing)
+  - Xdebug (con xdebug.mode=coverage en php.ini)
+
+* LA FALACIA DE LA COBERTURA ("Dice que se ejecuto, nunca si se verifico bien"):
+  - Si un desarrollador escribe un test que llama a un metodo pero no incluye ninguna
+    asercion ($this->assertEquals, etc.), la herramienta reportara 100% DE COBERTURA
+    de lineas para ese metodo.
+  - Sin embargo, si ese metodo devuelve un calculo incorrecto, la prueba seguira
+    pasando en verde.
+  - Por esta razon, la cobertura solo mide que el codigo fue transitado por el interprete,
+    pero la verdadera garantia de calidad reside en las aserciones, las pruebas de ramas
+    (Branch Coverage) y las pruebas de mutacion (Mutation Testing).
+
+================================================================================
+EJECUCION DE TODA LA SUITE COMPLETA
+================================================================================
+Para correr los 11 tests juntos:
+
+    php artisan test
+
+Resultado:
+   PASS  Tests\Unit\EmpleadoAgregacionesTest (5 tests)
+   PASS  Tests\Unit\ExampleTest (1 test)
+   PASS  Tests\Feature\EmpleadoContratoTest (2 tests)
+   PASS  Tests\Feature\EmpleadoIntegracionTest (1 test)
+   PASS  Tests\Feature\EphemeralContainerTest (1 test)
+   PASS  Tests\Feature\ExampleTest (1 test)
+
+   Tests: 11 passed (50 assertions)
+================================================================================

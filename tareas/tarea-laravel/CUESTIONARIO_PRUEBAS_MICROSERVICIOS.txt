@@ -1,0 +1,163 @@
+================================================================================
+CUESTIONARIO DE EVALUACION Y DEFENSA: PRUEBAS EN LARAVEL PARA MICROSERVICIOS
+================================================================================
+
+Este cuestionario consta de 10 preguntas con opciones multiples, respuestas
+correctas y justificacion tecnica basada en el codigo implementado en el proyecto.
+
+--------------------------------------------------------------------------------
+PREGUNTA 1: Sobre Pruebas Unitarias
+¿Cual es la caracteristica principal que define a una prueba unitaria pura?
+--------------------------------------------------------------------------------
+a) Verifica el flujo completo desde la peticion HTTP hasta la base de datos física.
+b) Evalua una funcion o clase aislada en memoria, sin tocar red ni base de datos, midiendose en milisegundos.
+c) Levanta un contenedor Docker para aislar las tablas temporales.
+d) Comprueba que el formato JSON coincida con la especificacion Swagger.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+Una prueba unitaria debe ejecutarse de forma deterministica y aislada de dependencias
+externas (como MongoDB o llamadas HTTP). Por eso en 'EmpleadoAgregacionesTest.php'
+probamos 'EmpleadoMetricasService' pasando arreglos en memoria y tardando ~40 ms.
+
+--------------------------------------------------------------------------------
+PREGUNTA 2: Patron AAA (Arrange - Act - Assert)
+En nuestra prueba unitaria 'EmpleadoAgregacionesTest.php', ¿a que fase corresponde
+la llamada al metodo '$this->servicio->calcularNominaTotal($this->empleadosEjemplo)'?
+--------------------------------------------------------------------------------
+a) Arrange (Preparar el entorno).
+b) Act (Actuar / Ejecutar la operacion bajo prueba).
+c) Assert (Verificar el resultado obtenido).
+d) Cleanup (Limpiar recursos de base de datos).
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+El patron AAA se divide en:
+1. Arrange: En setUp() definimos la lista de 4 empleados de muestra.
+2. Act: Ejecutamos el metodo calcularNominaTotal().
+3. Assert: Comprobamos con $this->assertEquals(18000.0, $total) que sea correcto.
+
+--------------------------------------------------------------------------------
+PREGUNTA 3: Pruebas de Integracion
+¿Cual es el proposito principal de una prueba de integracion en una API REST?
+--------------------------------------------------------------------------------
+a) Comprobar que dos o mas componentes (Endpoint, Controlador, Modelo y Base de Datos) cooperen correctamente.
+b) Medir el tiempo de renderizado de la interfaz de usuario en el navegador.
+c) Garantizar que el codigo fuente no tenga faltas ortograficas ni malas practicas de estilo con Pint.
+d) Reemplazar por completo a las pruebas unitarias para ahorrar tiempo de desarrollo.
+
+>> RESPUESTA CORRECTA: a
+>> JUSTIFICACION:
+A diferencia de la prueba unitaria, la prueba de integracion ('EmpleadoIntegracionTest.php')
+envia un POST /api/empleados, pasa por el controlador, interactua con el ODM de MongoDB,
+persiste el documento real en disco y lo recupera con un GET.
+
+--------------------------------------------------------------------------------
+PREGUNTA 4: Diferencia entre Integracion y Contrato
+¿En que se diferencia principalmente una prueba de contrato de una prueba de integracion?
+--------------------------------------------------------------------------------
+a) La prueba de contrato no usa aserciones de PHPUnit.
+b) La de integracion valida el comportamiento interno (persistencia en BD), mientras que la de contrato valida la interfaz externa (esquema, tipos de datos y campos esperados por el consumidor).
+c) La prueba de contrato solo se puede hacer en lenguajes compilados como Go o C++.
+d) No existe ninguna diferencia; son exactamente el mismo tipo de prueba.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+En microservicios, la prueba de contrato ('EmpleadoContratoTest.php') evita que cambios
+internos en el servicio rompan a otros microservicios o clientes que consumen el JSON o
+el mensaje gRPC (Protobuf), garantizando tipos y estructuras inmutables.
+
+--------------------------------------------------------------------------------
+PREGUNTA 5: Seguridad en Pruebas de Contrato
+En 'EmpleadoContratoTest.php', ¿por que utilizamos la asercion '$this->assertArrayNotHasKey('password', $data)'?
+--------------------------------------------------------------------------------
+a) Porque MongoDB no admite guardar campos con el nombre 'password'.
+b) Para asegurar que el contrato publico no filtre credenciales ni campos sensibles a los clientes consumidores.
+c) Para forzar al servidor a generar un error HTTP 500.
+d) Porque la contraseña debe ser siempre un entero y nunca una cadena.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+Las pruebas de contrato no solo validan que esten los campos necesarios, sino tambien
+que el payload de respuesta respete las politicas de seguridad y no exponga atributos
+internos o confidenciales.
+
+--------------------------------------------------------------------------------
+PREGUNTA 6: Contenedores Efimeros
+¿Que es un contenedor efimero en el contexto de pruebas automatizadas?
+--------------------------------------------------------------------------------
+a) Un contenedor que se queda encendido indefinidamente en produccion.
+b) Una base de datos real levantada por la propia suite al empezar y destruida automaticamente al terminar.
+c) Una base de datos SQLite simulada en un archivo de texto plano.
+d) Una copia de seguridad que se restaura manualmente cada fin de semana.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+Sigue el patron de Testcontainers: en lugar de exigir que el desarrollador o el servidor
+CI/CD tengan MongoDB instalado localmente, el test arranca un contenedor nuevo, corre
+sus pruebas contra una base real y luego lo destruye.
+
+--------------------------------------------------------------------------------
+PREGUNTA 7: Ciclo de Vida de PHPUnit en Contenedores Efimeros
+En 'EphemeralContainerTest.php', ¿en que metodos del ciclo de vida de PHPUnit se
+ejecutan respectivamente 'docker run' y 'docker stop'?
+--------------------------------------------------------------------------------
+a) En setUp() y tearDown() antes y despues de cada prueba individual.
+b) En setUpBeforeClass() al iniciar la clase y en tearDownAfterClass() al finalizar la suite.
+c) En el archivo composer.json mediante un hook de post-install.
+d) En el constructor de la clase Empleado.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+Levantar un contenedor Docker toma algunos segundos. Hacerlo en setUpBeforeClass() permite
+iniciarlo una sola vez para toda la clase de prueba y destruirlo en tearDownAfterClass(),
+maximizando la eficiencia.
+
+--------------------------------------------------------------------------------
+PREGUNTA 8: La Bandera '--rm' en Docker
+¿Por que es fundamental incluir la bandera '--rm' al ejecutar 'docker run' para pruebas efimeras?
+--------------------------------------------------------------------------------
+a) Permite que el contenedor corra en modo de solo lectura (Read-Only).
+b) Hace que Docker elimine automaticamente el contenedor y su sistema de archivos al detenerse, sin dejar residuos en disco.
+c) Habilita el reinicio automatico del contenedor si ocurre un fallo.
+d) Es obligatoria para poder exponer puertos TCP en Windows.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+La bandera '--rm' asegura que cuando el test ejecute 'docker stop mongo_ephemeral_test',
+el demonio de Docker elimine tanto el contenedor como sus volumenes asociados de inmediato,
+garantizando cero residuos.
+
+--------------------------------------------------------------------------------
+PREGUNTA 9: Cobertura de Codigo (Code Coverage)
+¿Que mide exactamente el porcentaje de cobertura de codigo generado por 'php artisan test --coverage'?
+--------------------------------------------------------------------------------
+a) La cantidad de fallos y vulnerabilidades de seguridad que tiene el sistema.
+b) El porcentaje de lineas o ramas logicas del codigo que fueron recorridas durante la ejecucion de los tests.
+c) El rendimiento en milisegundos de cada consulta a MongoDB.
+d) La calificacion que el profesor le asignara al trabajo practico.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+La cobertura de codigo utiliza un driver (como PCOV o Xdebug) para interceptar las lineas
+de codigo y reportar que porcion del codigo fuente fue transitada por los tests.
+
+--------------------------------------------------------------------------------
+PREGUNTA 10: La "Falacia de la Cobertura"
+¿Por que se afirma en ingenieria de software que: "La cobertura dice que codigo se ejecuto, nunca si se verifico bien"?
+--------------------------------------------------------------------------------
+a) Porque los motores de cobertura solo funcionan en sistemas operativos Linux.
+b) Porque es posible ejecutar el 100% de las lineas de un metodo sin incluir un solo assert, obteniendo 100% de cobertura pero 0% de verificacion real.
+c) Porque la cobertura solo mide los comentarios y la documentacion del codigo.
+d) Porque PHPUnit no es compatible con bases de datos NoSQL como MongoDB.
+
+>> RESPUESTA CORRECTA: b
+>> JUSTIFICACION:
+Si invocas un metodo que calcula la nomina pero no pones ninguna asercion ($this->assertEquals),
+el analizador reportara 100% de lineas cubiertas. Si el calculo devuelve un numero negativo o
+erroneo, el test pasara en verde igual. La verdadera calidad radica en las aserciones validas
+y en el analisis de casos limite.
+
+================================================================================
+FIN DEL CUESTIONARIO
+================================================================================

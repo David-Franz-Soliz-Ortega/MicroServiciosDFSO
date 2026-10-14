@@ -1,0 +1,128 @@
+================================================================================
+                    PROPUESTA DE PROYECTO: SISTEMA ELECTORAL
+                           ARQUITECTURA DE MICROSERVICIOS
+                           (Trabajo Grupal de 3 Personas)
+================================================================================
+
+1. ARQUITECTURA GENERAL Y FLUJO DE DATOS
+--------------------------------------------------------------------------------
+El sistema estara compuesto por 3 microservicios principales desacoplados por 
+dominio de negocio, comunicandose de manera asincrona mediante RabbitMQ y 
+expuestos a traves de un API Gateway.
+
+Diagrama de Flujo:
+[Frontend / Mesa] -> [API Gateway] 
+                           |
+       +-------------------+-------------------+
+       |                   |                   |
+       v                   v                   v
+[MS 1: Padron]     [MS 2: Votacion]     [MS 3: Escrutinio]
+       ^                   |                   ^
+       | (Consume)         | (Produce)         | (Consume)
+       +-------- [ Broker RabbitMQ ] ----------+
+
+
+================================================================================
+2. DIVISION DE LOS 3 MICROSERVICIOS POR INTEGRANTE
+================================================================================
+
+--------------------------------------------------------------------------------
+INTEGRANTE 1: MICROSERVICIO DE PADRON ELECTORAL Y AUTENTICACION
+--------------------------------------------------------------------------------
+* Objetivo:
+  Gestionar a los votantes habilitados, mesas de votacion y garantizar que 
+  cada persona vote una sola vez.
+
+* Base de Datos sugerida:
+  Relacional (PostgreSQL / MySQL) -> Tablas: Votantes, Recintos, Mesas.
+
+* Endpoints / Responsabilidades:
+  - POST /auth/login : Autenticacion del elector o presidente de mesa (JWT).
+  - GET /votantes/{ci}/elegibilidad : Consulta si el elector esta habilitado y su mesa.
+  - PATCH /votantes/{ci}/marcar-voto : Actualiza estado 'ha_votado = true'.
+
+* Integracion con RabbitMQ:
+  - Consumidor: Escucha el evento 'voto.emitido' para marcar automaticamente al 
+    votante como "ya voto", impidiendo reintentos o doble voto.
+
+* Pruebas Unitarias a implementar:
+  - Validacion de elegibilidad (edad, recinto activo, no inhabilitado).
+  - Generacion y validacion de firmas JWT / hash de contrasenas.
+  - Regla de negocio: impedir solicitud de papeleta si ya figura como "ha_votado".
+
+
+--------------------------------------------------------------------------------
+INTEGRANTE 2: MICROSERVICIO DE VOTACION Y CANDIDATOS (CORE)
+--------------------------------------------------------------------------------
+* Objetivo:
+  Administrar papeletas de votacion y registrar el sufragio garantizando el 
+  secreto del voto (anonimato total).
+
+* Base de Datos sugerida:
+  Relacional o Documental -> Tablas/Colecciones: Elecciones, Candidatos, UrnaVirtual
+  (IMPORTANTE: La urna guarda el voto sin asociarlo al CI del votante).
+
+* Endpoints / Responsabilidades:
+  - GET /elecciones/activas : Lista candidatos y partidos habilitados.
+  - POST /votos/emitir : Recibe y almacena el voto anonimizado en la urna virtual.
+
+* Integracion con RabbitMQ:
+  - Productor (Publisher): Al almacenar el voto exitosamente, publica el evento:
+      Exchange:    electoral.exchange (tipo Topic o Fanout)
+      Routing Key: voto.emitido
+      Payload:     { idVoto, eleccionId, mesaId, candidatoId, timestamp }
+
+* Pruebas Unitarias a implementar:
+  - Validacion de la eleccion activa (rechazar votos fuera de horario).
+  - Verificacion de candidatos y opciones validas (voto blanco/nulo/valido).
+  - Mock del cliente RabbitMQ para verificar serializacion y publicacion correcta.
+
+
+--------------------------------------------------------------------------------
+INTEGRANTE 3: MICROSERVICIO DE ESCRUTINIO, CONTEO Y RESULTADOS
+--------------------------------------------------------------------------------
+* Objetivo:
+  Realizar el conteo en tiempo real, generacion de actas y estadisticas.
+
+* Base de Datos sugerida:
+  NoSQL o Relacional optimizada en lectura -> Colecciones: TotalesPorCandidato, 
+  TotalesPorMesa, ActasCierre.
+
+* Endpoints / Responsabilidades:
+  - GET /resultados/en-vivo : Resumen en tiempo real con porcentajes por candidato.
+  - GET /resultados/por-mesa/{mesaId} : Detalle de votos escrutados por mesa.
+  - GET /reportes/acta-final : Generacion del acta final y cierre de elecciones.
+
+* Integracion con RabbitMQ:
+  - Consumidor (Consumer): Cola suscrita a 'voto.emitido'. 
+    Incrementa de forma atomica el contador de votos por candidato y por mesa.
+
+* Pruebas Unitarias a implementar:
+  - Logica de acumuladores y calculo porcentual de sufragios.
+  - Idempotencia: Verificar que procesar un mensaje duplicado no altere el conteo.
+  - Mock del consumidor RabbitMQ para testear recepcion y confirmacion (ACK/NACK).
+
+
+================================================================================
+3. REQUISITOS TECNICOS Y COMO APLICARLOS
+================================================================================
+
+1. RABBITMQ:
+   - Permite alta concurrencia: El servicio de votacion no colapsa ni espera a 
+     que escrutinio termine para responderle al votante (desacoplamiento total).
+   - Exchange: "electoral.exchange"
+   - Colas:
+     * "cola.escrutinio" -> Consumida por Microservicio 3.
+     * "cola.bloqueo.padron" -> Consumida por Microservicio 1.
+
+2. PRUEBAS UNITARIAS:
+   - Cada integrante programa sus pruebas en su servicio (aislando dependencias).
+   - Utilizar herramientas de Mocking (para bases de datos y colas RabbitMQ).
+   - Cobertura minima recomendada: 70% en servicios y controladores.
+
+3. DESPLIEGUE / DOCKER COMPOSE:
+   - Archivo unico docker-compose.yml compartido que levanta:
+     * 1 contenedor RabbitMQ (puertos 5672 y 15672 para la consola web).
+     * Contenedores de Base de Datos para cada microservicio.
+     * Contenedor API Gateway (Nginx o Gateway del lenguaje elegido).
+================================================================================

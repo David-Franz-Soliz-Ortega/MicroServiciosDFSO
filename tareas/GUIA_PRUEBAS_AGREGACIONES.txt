@@ -1,0 +1,182 @@
+================================================================================
+GUIA: PRUEBAS UNITARIAS CON AGREGACIONES EN LARAVEL Y MONGODB
+================================================================================
+
+1. ¿QUE SON LAS AGREGACIONES?
+--------------------------------------------------------------------------------
+Las operaciones de agregacion son calculos o transformaciones que se realizan 
+sobre un conjunto de datos para obtener un resumen estadistico o agrupado, por ejemplo:
+- Calcular la suma total de salarios (SUM).
+- Obtener el promedio de sueldos por puesto (AVG / GROUP BY).
+- Contar cuantos empleados hay en cada departamento (COUNT).
+- En MongoDB: Usar el "Aggregation Pipeline" ($match, $group, $sort, $project).
+
+
+2. ENFOQUES PARA PROBAR AGREGACIONES
+--------------------------------------------------------------------------------
+En pruebas de software existen dos formas de abordar las agregaciones:
+
+A) PRUEBA UNITARIA PURA (Sin Base de Datos / En Memoria):
+   - Se enfoca en la logica de negocio.
+   - En lugar de consultar la base de datos, simulas una lista de datos (usando
+     Colecciones de Laravel) o "mockeas" la respuesta del modelo, y verificas que
+     el calculo sea 100% exacto.
+   - Es ultra rapida y no requiere conexion a MongoDB.
+
+B) PRUEBA DE INTEGRACION / CONSULTA REAL (Con Base de Datos de Test):
+   - Inserta 3 o 4 registros en MongoDB (o SQLite de pruebas).
+   - Ejecuta la consulta de agregacion real (ej. Empleado::raw()->aggregate(...)).
+   - Comprueba que la consulta retorne los valores calculados correctos.
+
+
+3. EJEMPLO 1: PRUEBA UNITARIA PURA (Logica en Servicios / Colecciones)
+--------------------------------------------------------------------------------
+Supongamos que tienes un servicio de metricas o metodos en tu aplicacion que
+calculan el salario total y el promedio por puesto:
+
+// app/Services/NominaService.php:
+namespace App\Services;
+
+class NominaService
+{
+    public function calcularEstadisticas($empleados)
+    {
+        $coleccion = collect($empleados);
+
+        return [
+            'total_nomina' => (float) $coleccion->sum('salario'),
+            'promedio_salario' => (float) $coleccion->avg('salario'),
+            'cantidad' => $coleccion->count(),
+            'por_puesto' => $coleccion->groupBy('puesto')->map(function ($grupo) {
+                return [
+                    'total' => (float) $grupo->sum('salario'),
+                    'cantidad' => $grupo->count(),
+                ];
+            })->toArray()
+        ];
+    }
+}
+
+COMO HACER LA PRUEBA UNITARIA:
+Crea la prueba con:
+    php artisan make:test NominaServiceTest --unit
+
+// tests/Unit/NominaServiceTest.php:
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use App\Services\NominaService;
+
+class NominaServiceTest extends TestCase
+{
+    public function test_calcula_agregaciones_correctamente(): void
+    {
+        // 1. Datos simulados (Arrange / Preparar)
+        $datos = [
+            ['nombre' => 'Ana', 'puesto' => 'Desarrollador', 'salario' => 3000.0],
+            ['nombre' => 'Carlos', 'puesto' => 'Desarrollador', 'salario' => 5000.0],
+            ['nombre' => 'Lucia', 'puesto' => 'Disenador', 'salario' => 2000.0],
+        ];
+
+        $servicio = new NominaService();
+
+        // 2. Ejecutar la agregacion (Act / Actuar)
+        $resultado = $servicio->calcularEstadisticas($datos);
+
+        // 3. Afirmaciones (Assert / Verificar)
+        $this->assertEquals(10000.0, $resultado['total_nomina']);      // 3000 + 5000 + 2000
+        $this->assertEquals(3, $resultado['cantidad']);
+        $this->assertEquals(3333.33, round($resultado['promedio_salario'], 2));
+
+        // Verificar agrupacion por puesto
+        $this->assertArrayHasKey('Desarrollador', $resultado['por_puesto']);
+        $this->assertEquals(8000.0, $resultado['por_puesto']['Desarrollador']['total']);
+        $this->assertEquals(2, $resultado['por_puesto']['Desarrollador']['cantidad']);
+    }
+}
+
+
+4. EJEMPLO 2: PRUEBA CON EL AGGREGATION PIPELINE DE MONGODB
+--------------------------------------------------------------------------------
+Si tu consulta ejecuta un pipeline nativo de MongoDB:
+
+// Metodo en tu modelo o repositorio:
+public function obtenerPromedioPorPuesto()
+{
+    return Empleado::raw(function ($collection) {
+        return $collection->aggregate([
+            [
+                '$group' => [
+                    '_id' => '$puesto',
+                    'salarioPromedio' => ['$avg' => '$salario'],
+                    'totalEmpleados' => ['$sum' => 1]
+                ]
+            ]
+        ]);
+    });
+}
+
+COMO PROBARLO (Prueba de Feature / Integracion con base de datos):
+Crea la prueba con:
+    php artisan make:test EmpleadoAgregacionTest
+
+// tests/Feature/EmpleadoAgregacionTest.php:
+namespace Tests\Feature;
+
+use Tests\TestCase;
+use App\Models\Empleado;
+
+class EmpleadoAgregacionTest extends TestCase
+{
+    public function test_pipeline_de_agregacion_por_puesto(): void
+    {
+        // Limpiamos datos previos de prueba
+        Empleado::truncate();
+
+        // Insertamos datos de prueba
+        Empleado::create(['nombre' => 'Juan', 'puesto' => 'Backend', 'salario' => 4000]);
+        Empleado::create(['nombre' => 'Pedro', 'puesto' => 'Backend', 'salario' => 6000]);
+        Empleado::create(['nombre' => 'Maria', 'puesto' => 'Frontend', 'salario' => 3000]);
+
+        // Ejecutamos la agregacion de MongoDB
+        $resultado = Empleado::raw(function ($collection) {
+            return $collection->aggregate([
+                [
+                    '$group' => [
+                        '_id' => '$puesto',
+                        'salarioPromedio' => ['$avg' => '$salario'],
+                        'totalEmpleados' => ['$sum' => 1]
+                    ]
+                ],
+                ['$sort' => ['_id' => 1]]
+            ]);
+        })->toArray();
+
+        // Verificamos resultados
+        $this->assertCount(2, $resultado);
+        
+        // Backend debe tener promedio 5000 y 2 empleados
+        $backend = collect($resultado)->firstWhere('_id', 'Backend');
+        $this->assertEquals(5000, $backend['salarioPromedio']);
+        $this->assertEquals(2, $backend['totalEmpleados']);
+    }
+}
+
+
+5. METODOS DE ASERCION COMUNES EN PRUEBAS DE AGREGACIONES
+--------------------------------------------------------------------------------
+- $this->assertEquals($esperado, $actual): Compara igualdad numerica o textual.
+- $this->assertCount(2, $array): Verifica cantidad de elementos agrupados.
+- $this->assertGreaterThan(0, $valor): Verifica que una suma o total sea positivo.
+- $this->assertArrayHasKey('clave', $array): Verifica que un grupo exista en el resultado.
+
+
+6. COMANDOS PARA CORRER LAS PRUEBAS
+--------------------------------------------------------------------------------
+- Correr todas las pruebas:
+    php artisan test
+
+- Correr solo la prueba especifica:
+    php artisan test --filter=NominaServiceTest
+    php artisan test --filter=EmpleadoAgregacionTest
+================================================================================

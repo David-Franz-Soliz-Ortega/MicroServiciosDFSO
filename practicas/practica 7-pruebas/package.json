@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "jest --runInBand",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
-  },
+ "scripts": {
+    "test": "jest",
+    "test:unit": "jest tests/unit --runInBand",
+    "test:int": "jest tests/integracion --runInBand",
+    "test:cov": "jest --coverage",
+    "ci": "npm install && npm run test:unit && npm run test:int && npm run test:cov"
+  }
+,
   "keywords": [],
   "type": "commonjs",
   "dependencies": {

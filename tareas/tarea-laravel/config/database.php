@@ -117,7 +117,7 @@ return [
             'driver' => 'mongodb',
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', 27017),
-            'database' => env('DB_DATABASE', 'db_empresa'),
+            'database' => (env('DB_DATABASE') && env('DB_DATABASE') !== ':memory:') ? env('DB_DATABASE') : 'db_empresa_testing',
         ],
 
     ],

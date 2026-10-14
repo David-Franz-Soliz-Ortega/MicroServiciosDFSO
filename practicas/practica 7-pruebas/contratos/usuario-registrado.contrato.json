@@ -1,0 +1,6 @@
+{
+  "evento": "UsuarioRegistrado",
+  "version": "1.0",
+  "camposObligatorios": ["usuarioId", "email", "fecha"],
+  "tipos": { "usuarioId": "number", "email": "string", "fecha": "string" }
+}

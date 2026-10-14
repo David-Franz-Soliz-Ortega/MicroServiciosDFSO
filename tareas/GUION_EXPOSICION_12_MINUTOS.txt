@@ -1,0 +1,189 @@
+================================================================================
+GUION DE EXPOSICION ORAL (DURACION: ~11 A 13 MINUTOS)
+Expositor: David
+Materia: Microservicios / COM600
+Proyecto: Estrategias de Pruebas en Microservicios (Laravel 12, MongoDB, gRPC)
+================================================================================
+
+Este guion esta disenado exactamente para las 8 diapositivas de tu presentacion.
+Habla a ritmo natural, con seguridad y haciendo pausas en los puntos clave.
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 1: PORTADA (~1 minuto)
+[Visual: Titulo, datos de la materia y tu nombre: David]
+--------------------------------------------------------------------------------
+"Buenos dias / buenas tardes, docente y companeros. 
+
+Mi nombre es David, y hoy voy a presentarles la implementacion practica de:
+'Estrategias de Pruebas en Microservicios: De la Unidad al Contenedor Efimero'.
+
+En arquitecturas distribuidas, probar aplicaciones ya no consiste unicamente 
+en levantar la aplicacion y hacer clic en una pantalla. La complejidad de la 
+red, la persistencia en bases de datos NoSQL y la comunicacion entre servicios 
+exigen una estrategia de pruebas rigurosa. 
+
+En este trabajo, he implementado y configurado en el framework Laravel 12 
+una suite integral que cubre desde pruebas unitarias en milisegundos hasta 
+pruebas con contenedores efimeros en Docker, pasando por integracion y contratos 
+estrictos."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 2: PIRAMIDE DE PRUEBAS Y ENFOQUE (~1.5 minutos)
+[Visual: Piramide de pruebas, retos de red y los 4 pilares en Laravel]
+--------------------------------------------------------------------------------
+"Para entender nuestra estrategia, nos basamos en la clasica Piramide de Pruebas. 
+La base, amplia y veloz, esta compuesta por pruebas unitarias. A medida que subimos, 
+tenemos integracion, contratos y en la cima las pruebas de extremo a extremo (E2E).
+
+¿Por que es critico este enfoque en microservicios? 
+Porque enfrentamos tres retos mayores:
+1. La latencia y los fallos de red inherentes a sistemas distribuidos.
+2. El riesgo de estados inconsistentes entre nodos y bases de datos.
+3. El peligro de romper servicios consumidores cuando un servicio proveedor 
+   cambia la estructura de sus datos.
+
+Para resolver esto en nuestro microservicio Laravel, establecimos cuatro pilares:
+Primero, aislamiento logico puro. Segundo, acoplamiento verificado de componentes. 
+Tercero, inmutabilidad de interfaces y contratos. Y cuarto, el uso de 
+infraestructura efimera mediante Docker."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 3: PRUEBA UNITARIA (UNIT TESTING) (~2 minutos)
+[Visual: EmpleadoAgregacionesTest :: Patron AAA, < 50ms, SUM, AVG, GROUP BY, Casos Borde]
+--------------------------------------------------------------------------------
+"Comencemos por la base: la Prueba Unitaria.
+Su objetivo es verificar una funcion o clase de manera 100% aislada, sin base 
+de datos y sin red, ejecutandose en milisegundos.
+
+En nuestro proyecto creamos la clase de dominio 'EmpleadoMetricasService' y su 
+prueba 'EmpleadoAgregacionesTest'. 
+
+Aqui aplicamos de forma estricta el patron AAA:
+- Arrange (Preparar): Definimos en memoria un conjunto de 4 empleados con 
+  salarios conocidos (3000, 5000, 2000 y 8000).
+- Act (Actuar): Invocamos nuestras funciones de agregacion matematicas:
+  la operacion SUM para la nomina total, AVG para el salario promedio, 
+  GROUP BY para agrupar metricas por puesto de trabajo, y MAX para el sueldo mayor.
+- Assert (Verificar): Comprobamos que la suma matematica sea exactamente 18000.0, 
+  que el promedio sea 4500.0 y que los desarrolladores esten correctamente agrupados.
+
+Ademas, evaluamos Casos Borde con arreglos vacios, verificando que el servicio sea 
+resiliente y nunca arroje una excepcion por division entre cero. 
+¿El resultado? 5 pruebas que se ejecutan en menos de 50 milisegundos."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 4: PRUEBA DE INTEGRACION (~2 minutos)
+[Visual: Fronteras arquitectonicas, Endpoint HTTP -> Controlador -> Modelo -> MongoDB]
+--------------------------------------------------------------------------------
+"Subiendo en la piramide, llegamos a la Prueba de Integracion.
+Aqui ya no aislamos los componentes; al contrario, queremos comprobar que dos o mas 
+piezas cooperen correctamente a traves de sus fronteras arquitectonicas.
+
+En nuestro archivo 'EmpleadoIntegracionTest' validamos el ciclo completo de vida 
+de una peticion:
+1. Peticion POST: Enviamos un JSON real hacia el endpoint '/api/empleados'.
+2. El Router de Laravel lo despacha hacia el 'EmpleadoController'.
+3. El controlador delega la operacion al modelo Eloquent 'Empleado', que trabaja 
+   con el driver de MongoDB.
+4. Persistencia: Se verifica que el registro se inserte fisicamente en la base NoSQL.
+5. Recuperacion GET: Consultamos '/api/empleados/{id}' para confirmar la 
+   consistencia de lectura desde la base de datos real.
+6. Limpieza: Finalmente, ejecutamos un DELETE asegurando la idempotencia y dejando 
+   la base de datos limpia para futuros tests.
+
+Esto nos da la certeza de que el framework, el controlador, el ORM y el motor 
+de base de datos estan correctamente acoplados."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 5: PRUEBA DE CONTRATO (CONTRACT TESTING) (~2 minutos)
+[Visual: Prevencion de ruptura, Contrato REST (assertJsonStructure) y Contrato gRPC Protobuf]
+--------------------------------------------------------------------------------
+"La siguiente capa es fundamental para microservicios: la Prueba de Contrato.
+Un error clasico en produccion ocurre cuando un equipo modifica un endpoint (por ejemplo, 
+renombrando un campo o devolviendo un salario como string en vez de numero) y 
+rompe de inmediato a todas las aplicaciones o servicios que consumian esa API.
+
+En 'EmpleadoContratoTest' protegemos la compatibilidad mediante dos enfoques:
+
+1. Contrato REST:
+   - Validamos la estructura del JSON con 'assertJsonStructure', exigiendo que campos 
+     como nombre, puesto y salario esten siempre presentes.
+   - Evaluamos tipos de datos estrictos con 'assertIsString' y 'assertIsNumeric'.
+   - Aplicamos seguridad de contrato: usamos 'assertArrayNotHasKey' para garantizar 
+     que nunca se filtren credenciales o datos sensibles como passwords hacia el exterior.
+
+2. Contrato gRPC / Protocol Buffers:
+   - Nuestro microservicio tambien cuenta con comunicacion gRPC de alto rendimiento.
+   - Probamos que los mensajes binarios ('EmpleadoResponse' y 'CrearEmpleadoRequest') 
+     cumplan exactamente con el esquema compilado del archivo .proto.
+
+Con esto garantizamos que cualquier consumidor podra interactuar con nuestro 
+microservicio con total tranquilidad."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 6: CONTENEDORES EFIMEROS (~2 minutos)
+[Visual: Testcontainers / EphemeralContainerTest, docker run --rm, ciclo de vida]
+--------------------------------------------------------------------------------
+"Llegamos a uno de los puntos mas innovadores: los Contenedores Efimeros, 
+concepto conocido en la industria como el patron 'Testcontainers'.
+
+El problema tradicional es la dependencia: 'Para correr las pruebas necesitas tener 
+MongoDB instalado en tu maquina'. Si no lo tienes, los tests fallan.
+La solucion moderna es que la propia suite de pruebas sea autonoma.
+
+En 'EphemeralContainerTest', programamos el ciclo de vida de PHPUnit de la siguiente forma:
+1. En 'setUpBeforeClass()', antes de iniciar los tests, el codigo ejecuta por consola: 
+   'docker run -d --rm -p 27019:27017 mongo:latest'.
+   Usamos el puerto aislado 27019 para no colisionar con nada local.
+2. Aplicamos un 'Health-Check': un bucle con ping para esperar a que MongoDB este 
+   100% listo para recibir conexiones.
+3. Conectamos dinamicamente Laravel al contenedor temporal e insertamos datos reales, 
+   ejecutando un pipeline nativo de agregacion con '$group', '$avg' y '$sum'.
+4. En 'tearDownAfterClass()', al terminar la prueba, ejecutamos 'docker stop'.
+   Gracias a la bandera '--rm', Docker destruye automaticamente el contenedor 
+   y sus datos.
+
+No dependemos de configuraciones previas y no dejamos residuos en el disco."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 7: COBERTURA DE CODIGO Y SU FALACIA (~1.5 minutos)
+[Visual: Mas alla de las metricas, La Falacia y La Solucion]
+--------------------------------------------------------------------------------
+"Hablemos ahora de la Cobertura de Codigo (Code Coverage), que en Laravel medimos 
+con el comando 'php artisan test --coverage'.
+
+La cobertura nos dice que porcentaje de lineas o ramas logicas fueron recorridas 
+por el interprete durante las pruebas. Sin embargo, hay una frase que resume 
+perfectamente el limite de esta metrica:
+'La cobertura te dice que codigo se ejecuto, pero NUNCA si se verifico bien'.
+
+A esto le llamamos 'La Falacia de la Cobertura':
+Un programador puede escribir una prueba que invoque un metodo de 100 lineas, pero 
+si no escribe ninguna asercion (ningun assert), la herramienta marcara 100% de cobertura 
+en verde. Pero si ese metodo calcula mal los datos, el error pasara desapercibido.
+
+Por lo tanto, la solucion profesional no es obsesionarse con el numero de cobertura, 
+sino priorizar la calidad de los asserts, analizar los casos limite e incorporar 
+Mutation Testing para auditar la efectividad real de las pruebas."
+
+--------------------------------------------------------------------------------
+DIAPOSITIVA 8: RESULTADOS Y CONCLUSIONES (~1.5 minutos)
+[Visual: 11 tests exitosos, 50 aserciones, Conclusiones y ¿Preguntas?]
+--------------------------------------------------------------------------------
+"Para finalizar, vemos los resultados de nuestra suite completa al correr 
+'php artisan test':
+- 11 pruebas ejecutadas exitosamente.
+- 50 aserciones verificadas.
+- 100% de pruebas en verde, cubriendo lógica unitaria, integración, contratos 
+  y contenedores efímeros.
+
+Como conclusiones clave para nuestra materia de Microservicios:
+1. La velocidad unitaria es vital para que el desarrollador reciba feedback inmediato.
+2. Probar contratos estrictos es mucho mas eficiente y confiable que depender 
+   unicamente de lentas pruebas End-to-End.
+3. Y los contenedores efimeros representan el estandar moderno en pipelines de CI/CD, 
+   garantizando pruebas reproducibles en cualquier entorno.
+
+Muchas gracias por su atencion. Si gustan, puedo ejecutar la suite en vivo en la 
+consola, y quedo atento a cualquier pregunta que tengan."
+================================================================================

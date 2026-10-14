@@ -1,0 +1,263 @@
+================================================================================
+MANUAL Y GUIA COMPLETA: FUNCIONAMIENTO DEL CODIGO, PRUEBAS, INSTALACION Y SALIDAS
+================================================================================
+
+Este documento explica de forma exhaustiva:
+1. QUE DEBES TENER INSTALADO (Prerrequisitos de Software y Extensiones).
+2. COMO FUNCIONA EL CODIGO DEL MICROSERVICIO (Arquitectura y Archivos).
+3. COMO FUNCIONA CADA UNA DE LAS PRUEBAS (Explicacion tecnica y logica).
+4. QUE DEBERIA VERSE EN PANTALLA (Salidas reales esperadas de la terminal).
+
+================================================================================
+1. QUE DEBES TENER INSTALADO
+================================================================================
+
+Para ejecutar el proyecto y todas sus pruebas necesitas:
+
+A. PHP 8.2 o Superior:
+   - Debe estar agregado al PATH de tu sistema.
+   - Para verificar en tu terminal:
+       php -v
+   - Extensiones necesarias en php.ini:
+       * extension=mongodb (driver para interactuar con MongoDB)
+       * extension=pdo_sqlite (para pruebas en memoria de Laravel)
+       * extension=curl, mbstring, openssl (estandar de Laravel)
+   - Para medir Cobertura de Codigo (Opcional pero recomendado):
+       * extension=pcov (o xdebug configurado con xdebug.mode=coverage)
+
+B. COMPOSER:
+   - Gestor de dependencias de PHP.
+   - Para verificar:
+       composer --version
+
+C. DOCKER DESKTOP:
+   - Necesario para ejecutar contenedores locales y para la prueba del
+     "Contenedor Efimero" (EphemeralContainerTest).
+   - Debe estar abierto y corriendo (el icono de la ballena activo en la barra de tareas).
+   - Para verificar:
+       docker --version
+       docker ps
+
+D. PREPARACION INICIAL DEL PROYECTO (Si lo clonas desde cero):
+   1. Instalar librerias de PHP:
+        composer install
+   2. Generar archivo .env (si no existe):
+        copy .env.example .env
+   3. Generar la clave de la aplicacion:
+        php artisan key:generate
+
+
+================================================================================
+2. COMO FUNCIONA EL CODIGO DEL MICROSERVICIO
+================================================================================
+
+El proyecto es un microservicio en Laravel 12 encargado de la Gestion de Empleados.
+Combina una API REST (con documentacion OpenAPI/Swagger), llamadas gRPC y una base
+de datos NoSQL (MongoDB).
+
+La estructura de archivos clave es:
+
+1. app/Models/Empleado.php:
+   - Es el modelo Eloquent adaptado para MongoDB ('MongoDB\Laravel\Eloquent\Model').
+   - Tiene configurada la conexion: protected $connection = 'mongodb'.
+   - Campos permitidos ($fillable): ['nombre', 'puesto', 'salario'].
+
+2. app/Http/Controllers/Api/EmpleadoController.php:
+   - Expone los endpoints REST para el CRUD (/api/empleados).
+   - Metodos:
+     * index(): Retorna todos los empleados (GET).
+     * store(Request $request): Crea un nuevo empleado en MongoDB (POST).
+     * show($id): Busca un empleado por su ID de MongoDB (GET /{id}).
+     * update(Request $request, $id): Actualiza datos (PUT /{id}).
+     * destroy($id): Elimina un empleado (DELETE /{id}).
+
+3. app/Services/EmpleadoMetricasService.php:
+   - Es la capa de LOGICA PURA (Servicio de Dominio).
+   - No se conecta a bases de datos ni a la red.
+   - Realiza operaciones matematicas y estadisticas (Agregaciones) sobre colecciones:
+     * calcularNominaTotal(): Suma todos los salarios (SUM).
+     * calcularSalarioPromedio(): Calcula la media salarial (AVG), controlando arrays vacios.
+     * agruparPorPuesto(): Agrupa por cargo y calcula cantidad, total y media por grupo (GROUP BY).
+     * obtenerSalarioMaximo(): Identifica al empleado con mayor remuneracion (MAX).
+
+4. app/Grpc/Empleado/ y app/Services/EmpleadoService.php:
+   - Implementa contratos binarios de alta velocidad mediante Protocol Buffers (Protobuf).
+   - Define clases generadas como CrearEmpleadoRequest y EmpleadoResponse para gRPC.
+
+5. routes/api.php:
+   - Registra el recurso REST: Route::apiResource('empleados', EmpleadoController::class).
+
+
+================================================================================
+3. COMO FUNCIONAN LAS PRUEBAS (DETALLE TECNICO)
+================================================================================
+
+El proyecto cuenta con 4 suites de pruebas especializadas que cubren los requisitos:
+
+--------------------------------------------------------------------------------
+A. PRUEBA UNITARIA: tests/Unit/EmpleadoAgregacionesTest.php
+--------------------------------------------------------------------------------
+* QUE PRUEBA: La clase EmpleadoMetricasService de forma aislada en memoria.
+* COMO FUNCIONA:
+  - En el metodo setUp() crea 4 registros simulados:
+    Ana (3000), Carlos (5000), Lucia (2000), Marcos (8000).
+  - Test 1 (test_calcula_la_nomina_total_correctamente):
+    Invoca calcularNominaTotal() y verifica que la suma sea exactamente 18000.0.
+  - Test 2 (test_calcula_el_salario_promedio_general_correctamente):
+    Invoca calcularSalarioPromedio() y verifica que el promedio sea 4500.0.
+  - Test 3 (test_agrupa_y_calcula_metricas_por_puesto_correctamente):
+    Invoca agruparPorPuesto() y verifica que para 'Desarrollador' haya 2 personas,
+    total 8000 y promedio 4000.
+  - Test 4 (test_identifica_el_empleado_con_salario_maximo):
+    Verifica que el maximo sea Marcos Ramos con 8000.0.
+  - Test 5 (test_maneja_correctamente_conjuntos_vacios):
+    Valida la robustez ante listas vacias [] para evitar division por cero.
+* POR QUE SE MIDE EN MILISEGUNDOS:
+  Al no tener que esperar conexiones TCP, sockets, ni latencia de disco, la ejecucion
+  tarda aproximadamente 0.04 segundos (40 ms).
+
+--------------------------------------------------------------------------------
+B. PRUEBA DE INTEGRACION: tests/Feature/EmpleadoIntegracionTest.php
+--------------------------------------------------------------------------------
+* QUE PRUEBA: La cooperacion real entre Endpoint HTTP + Controlador + Modelo + MongoDB.
+* COMO FUNCIONA:
+  1. Envia datos mediante $this->postJson('/api/empleados', ['nombre' => 'Prueba Integracion', ...]).
+  2. Verifica que el endpoint retorne HTTP 201 (Created) y un ID generado por Mongo.
+  3. Realiza $this->getJson('/api/empleados/{id}') para asegurar que el endpoint de lectura
+     recupera los mismos datos.
+  4. Realiza una consulta directa con el modelo Empleado::find($id) para verificar que
+     los datos realmente estan escritos en los documentos de la base de datos física.
+  5. Limpia el registro mediante $this->deleteJson() para no ensuciar la base de datos.
+
+--------------------------------------------------------------------------------
+C. PRUEBA DE CONTRATO: tests/Feature/EmpleadoContratoTest.php
+--------------------------------------------------------------------------------
+* QUE PRUEBA: Que el formato del mensaje producido cumpla el contrato acordado con los consumidores.
+* COMO FUNCIONA:
+  1. Contrato REST JSON:
+     - Crea un empleado y consulta su endpoint.
+     - Valida la estructura estricta del JSON con assertJsonStructure:
+       verifica que contenga obligatoriamente ['nombre', 'puesto', 'salario', 'created_at', 'updated_at'].
+     - Valida tipos de datos: assertIsString($data['nombre']), assertIsNumeric($data['salario']).
+     - Valida que NO se filtren datos prohibidos: assertArrayNotHasKey('password', $data).
+  2. Contrato gRPC / Protobuf:
+     - Instancia CrearEmpleadoRequest y EmpleadoResponse de gRPC.
+     - Comprueba que los metodos getNombre(), getSalario(), etc. respeten los tipos
+       estipulados en el archivo .proto.
+
+--------------------------------------------------------------------------------
+D. CONTENEDOR EFIMERO: tests/Feature/EphemeralContainerTest.php
+--------------------------------------------------------------------------------
+* QUE PRUEBA: Capacidad de ejecutar pruebas contra una base real sin depender de nada instalado.
+* COMO FUNCIONA:
+  1. setUpBeforeClass() (Antes del test):
+     - Ejecuta: docker run -d --rm --name mongo_ephemeral_test -p 27019:27017 mongo:latest
+     - Espera activamente con un bucle de ping hasta que el MongoDB del contenedor responda.
+  2. test_persistencia_y_agregacion_en_contenedor_efimero():
+     - Apunta Laravel dinamicamente al puerto 27019 y llama DB::purge('mongodb').
+     - Inserta 3 empleados y corre un pipeline nativo de agregacion de MongoDB:
+       $collection->aggregate([['$group' => ['_id' => '$puesto', 'salarioPromedio' => ['$avg' => '$salario']]]]).
+     - Comprueba que la base de datos temporal calculo correctamente el resultado.
+  3. tearDownAfterClass() (Al finalizar el test):
+     - Ejecuta: docker stop mongo_ephemeral_test.
+     - Por tener la bandera --rm, Docker elimina y borra automaticamente el contenedor.
+
+--------------------------------------------------------------------------------
+E. COBERTURA DE CODIGO:
+--------------------------------------------------------------------------------
+* COMANDO: php artisan test --coverage
+* QUE SIGNIFICA: Mide el porcentaje de lineas de codigo y ramas logicas (if/else) que
+  fueron atravesadas por la ejecucion de las pruebas.
+
+
+================================================================================
+4. QUE DEBERIA VERSE EN PANTALLA (SALIDAS ESPERADAS)
+================================================================================
+
+A. AL EJECUTAR LA PRUEBA UNITARIA:
+Comando:
+    php artisan test --filter=EmpleadoAgregacionesTest
+
+Salida que deberias ver:
+   PASS  Tests\Unit\EmpleadoAgregacionesTest
+  ✓ calcula la nomina total correctamente                                     0.04s
+  ✓ calcula el salario promedio general correctamente
+  ✓ agrupa y calcula metricas por puesto correctamente
+  ✓ identifica el empleado con salario maximo                                 0.01s
+  ✓ maneja correctamente conjuntos vacios
+
+  Tests:    5 passed (17 assertions)
+  Duration: ~1.5s
+
+--------------------------------------------------------------------------------
+B. AL EJECUTAR LA PRUEBA DE INTEGRACION:
+Comando:
+    php artisan test --filter=EmpleadoIntegracionTest
+
+Salida que deberias ver:
+   PASS  Tests\Feature\EmpleadoIntegracionTest
+  ✓ endpoint con modelo y base de datos real                                  0.09s
+
+  Tests:    1 passed (10 assertions)
+  Duration: ~1.5s
+
+--------------------------------------------------------------------------------
+C. AL EJECUTAR LA PRUEBA DE CONTRATO:
+Comando:
+    php artisan test --filter=EmpleadoContratoTest
+
+Salida que deberias ver:
+   PASS  Tests\Feature\EmpleadoContratoTest
+  ✓ contrato rest cumple con el esquema esperado por el consumidor            2.19s
+  ✓ contrato grpc protobuf cumple especificacion                              0.10s
+
+  Tests:    2 passed (17 assertions)
+  Duration: ~2.5s
+
+--------------------------------------------------------------------------------
+D. AL EJECUTAR LA PRUEBA DEL CONTENEDOR EFIMERO:
+Comando:
+    php artisan test --filter=EphemeralContainerTest
+
+Salida que deberias ver (tomara unos 10 segundos mientras Docker arranca y destruye):
+   PASS  Tests\Feature\EphemeralContainerTest
+  ✓ persistencia y agregacion en contenedor efimero                           0.09s
+
+  Tests:    1 passed (4 assertions)
+  Duration: ~10.0s
+
+--------------------------------------------------------------------------------
+E. AL EJECUTAR TODAS LAS PRUEBAS JUNTAS (SUITE COMPLETA):
+Comando:
+    php artisan test
+
+Salida que deberias ver:
+   PASS  Tests\Unit\EmpleadoAgregacionesTest
+  ✓ calcula la nomina total correctamente                                     0.04s
+  ✓ calcula el salario promedio general correctamente
+  ✓ agrupa y calcula metricas por puesto correctamente
+  ✓ identifica el empleado con salario maximo                                 0.01s
+  ✓ maneja correctamente conjuntos vacios
+
+   PASS  Tests\Unit\ExampleTest
+  ✓ that true is true                                                         1.84s
+
+   PASS  Tests\Feature\EmpleadoContratoTest
+  ✓ contrato rest cumple con el esquema esperado por el consumidor            2.19s
+  ✓ contrato grpc protobuf cumple especificacion                              0.10s
+
+   PASS  Tests\Feature\EmpleadoIntegracionTest
+  ✓ endpoint con modelo y base de datos real                                  0.09s
+
+   PASS  Tests\Feature\EphemeralContainerTest
+  ✓ persistencia y agregacion en contenedor efimero                           0.09s
+
+   PASS  Tests\Feature\ExampleTest
+  ✓ the application returns a successful response                             0.16s
+
+  Tests:    11 passed (50 assertions)
+  Duration: 22.44s
+
+TODO EN VERDE: Todos los componentes, contratos, integraciones y contenedores
+pasan con 100% de exito.
+================================================================================

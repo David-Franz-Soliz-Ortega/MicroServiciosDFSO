@@ -1,0 +1,256 @@
+================================================================================
+GUIA COMPLETA DE PRESENTACION Y DEFENSA: PRUEBAS EN LARAVEL PARA MICROSERVICIOS
+================================================================================
+
+Este documento contiene todo lo necesario para tu presentacion y defensa tecnica:
+1. Comandos de ejecucion listos para copiar y pegar.
+2. Como explicar cada prueba ante el docente (guion paso a paso).
+3. Preguntas tipicas de examen/defensa con sus respuestas tecnicas.
+4. Prompt maestro para generar automaticamente tus diapositivas en IA (Gamma, Canva, ChatGPT, etc.).
+
+================================================================================
+SECCION 1: COMANDOS DE EJECUCION EN CONSOLA (POWERSHELL / CMD)
+================================================================================
+
+Ruta de trabajo:
+f:\2-2026\microservicios com600\tareas\tarea-laravel
+
+A. EJECUTAR TODAS LAS PRUEBAS JUNTAS:
+   php artisan test
+
+B. EJECUTAR CADA PRUEBA DE FORMA INDIVIDUAL:
+
+   1. Prueba Unitaria (Mide en milisegundos, sin base de datos ni red):
+      php artisan test --filter=EmpleadoAgregacionesTest
+
+   2. Prueba de Integracion (Endpoint + Controlador + Base real MongoDB):
+      php artisan test --filter=EmpleadoIntegracionTest
+
+   3. Prueba de Contrato (Esquema REST JSON + Contrato gRPC Protobuf):
+      php artisan test --filter=EmpleadoContratoTest
+
+   4. Prueba con Contenedor Efimero (Levanta Docker, prueba y destruye con --rm):
+      php artisan test --filter=EphemeralContainerTest
+
+   5. Medicion de Cobertura de Codigo:
+      php artisan test --coverage
+      (o para generar reporte HTML en carpeta):
+      php vendor/phpunit/phpunit/phpunit --coverage-html coverage-report
+
+
+================================================================================
+SECCION 2: GUION EXPLICATIVO PARA LA PRESENTACION (PRUEBA POR PRUEBA)
+================================================================================
+
+--------------------------------------------------------------------------------
+PRUEBA 1: PRUEBA UNITARIA (UNIT TEST)
+--------------------------------------------------------------------------------
+* Archivo de Logica: app/Services/EmpleadoMetricasService.php
+* Archivo de Prueba: tests/Unit/EmpleadoAgregacionesTest.php
+* Duracion: ~40 milisegundos.
+
+COMO EXPLICARLO:
+"Una prueba unitaria se enfoca en verificar una unidad minima de logica de negocio 
+de forma completamente aislada, sin tocar red ni base de datos, ejecutandose en milisegundos.
+
+En nuestro proyecto creamos la clase 'EmpleadoMetricasService', que realiza agregaciones 
+matematicas sobre colecciones de empleados. La prueba unitaria 'EmpleadoAgregacionesTest' 
+utiliza el patron AAA (Arrange - Act - Assert):
+
+1. Arrange (Preparar): Definimos en memoria un arreglo de 4 empleados con nombres y 
+   salarios conocidos (3000, 5000, 2000 y 8000).
+2. Act (Actuar): Invocamos las funciones de agregacion:
+   - calcularNominaTotal(): Agregacion SUM.
+   - calcularSalarioPromedio(): Agregacion AVG.
+   - agruparPorPuesto(): Agregacion GROUP BY (obtiene cantidad, total y promedio).
+   - obtenerSalarioMaximo(): Agregacion MAX.
+3. Assert (Verificar): Comprobamos que la suma exacta sea 18000.0, que el promedio 
+   sea 4500.0, y validamos casos de borde con arrays vacios para garantizar que el 
+   sistema no lance errores de division entre cero."
+
+
+--------------------------------------------------------------------------------
+PRUEBA 2: PRUEBA DE INTEGRACION (INTEGRATION TEST)
+--------------------------------------------------------------------------------
+* Archivo de Prueba: tests/Feature/EmpleadoIntegracionTest.php
+* Duracion: ~1.5 segundos.
+
+COMO EXPLICARLO:
+"A diferencia de la prueba unitaria, la prueba de integracion valida que dos o mas 
+piezas de la arquitectura interactuen correctamente de extremo a extremo:
+el Endpoint HTTP -> el Controlador -> el Modelo Eloquent -> la Base de datos real.
+
+El flujo que comprueba este test es:
+1. Envia una peticion HTTP real mediante '$this->postJson('/api/empleados')'.
+2. El enrutador de Laravel recibe la peticion y se la entrega a 'EmpleadoController'.
+3. El controlador llama a 'Empleado::create()', interactuando con el ODM de MongoDB.
+4. El registro se almacena fisicamente en la coleccion de la base de datos.
+5. Inmediatamente el test consulta '$this->getJson('/api/empleados/{id}')' y comprueba 
+   que el estado sea 200 y que los datos recuperados coincidan con los guardados.
+6. Finalmente, ejecuta '$this->deleteJson()' para confirmar la eliminacion del registro, 
+   manteniendo la base de datos consistente."
+
+
+--------------------------------------------------------------------------------
+PRUEBA 3: PRUEBA DE CONTRATO (CONTRACT TESTING)
+--------------------------------------------------------------------------------
+* Archivo de Prueba: tests/Feature/EmpleadoContratoTest.php
+* Duracion: ~2 segundos.
+
+COMO EXPLICARLO:
+"En una arquitectura de microservicios, el mayor peligro al desplegar cambios es romper 
+a los clientes consumidores (otros microservicios o frontends) si cambiamos la forma del mensaje.
+La prueba de contrato garantiza que el mensaje que nuestro servicio emite coincida 
+estrictamente con lo que el consumidor espera.
+
+En nuestro test validamos dos contratos fundamentales:
+A) Contrato REST (JSON Schema):
+   - Con '$response->assertJsonStructure()' garantizamos que los campos obligatorios 
+     ('nombre', 'puesto', 'salario', 'created_at', 'updated_at') esten siempre presentes.
+   - Verificamos tipos de datos estrictos ('assertIsString', 'assertIsNumeric').
+   - Validamos seguridad de contrato: comprobamos con 'assertArrayNotHasKey' que campos 
+     sensibles (como contrasenas o tokens internos) nunca se filtren al consumidor.
+B) Contrato gRPC / Protobuf:
+   - Validamos que los mensajes de solicitud y respuesta cumplan con la clase compilada 
+     por el protocolo binario ('CrearEmpleadoRequest' y 'EmpleadoResponse'), asegurando 
+     la interoperabilidad en llamadas gRPC de alta velocidad."
+
+
+--------------------------------------------------------------------------------
+PRUEBA 4: CONTENEDOR EFIMERO (EPHEMERAL CONTAINER / TESTCONTAINERS)
+--------------------------------------------------------------------------------
+* Archivo de Prueba: tests/Feature/EphemeralContainerTest.php
+* Duracion: ~10 segundos.
+
+COMO EXPLICARLO:
+"El problema clasico en pruebas automatizadas es la dependencia de tener una base de 
+datos previamente instalada y configurada en la maquina. La solucion moderna es el 
+patron de Contenedores Efimeros (utilizado en CI/CD y Testcontainers): la propia suite 
+levanta una base de datos real al iniciar y la destruye por completo al finalizar.
+
+En 'EphemeralContainerTest' aprovechamos el ciclo de vida de PHPUnit:
+1. setUpBeforeClass() (Al arrancar la clase de test):
+   - Ejecuta: 'docker run -d --rm --name mongo_ephemeral_test -p 27019:27017 mongo:latest'.
+   - Usamos el puerto 27019 para aislar completamente esta prueba y no colisionar 
+     con el puerto 27017 del entorno de desarrollo local.
+   - Realiza un ciclo de sondeo (ping) hasta que el motor de MongoDB este listo.
+2. test_persistencia_y_agregacion_en_contenedor_efimero():
+   - Reconfigura dinamicamente la conexion de Laravel y ejecuta 'DB::purge('mongodb')'.
+   - Inserta empleados y ejecuta un pipeline real de agregacion nativa de MongoDB 
+     ('$group', '$avg', '$sum') sobre ese contenedor temporal.
+3. tearDownAfterClass() (Al finalizar la prueba):
+   - Ejecuta 'docker stop mongo_ephemeral_test'.
+   - Gracias a la bandera '--rm' de Docker, el contenedor y sus datos se autodestruyen 
+     al instante. No deja residuos ni consume recursos despues de ejecutarse."
+
+
+--------------------------------------------------------------------------------
+PRUEBA 5: COBERTURA DE CODIGO (CODE COVERAGE)
+--------------------------------------------------------------------------------
+* Comando: php artisan test --coverage
+
+COMO EXPLICARLO:
+"La cobertura de codigo representa el porcentaje de lineas o ramas logicas que el 
+interprete ejecuto durante la corrida de pruebas.
+
+Sin embargo, hay una maxima fundamental en la ingenieria de software que debemos aclarar:
+'La cobertura dice que codigo se ejecuto, pero NUNCA si se verifico bien'.
+
+¿Por que?
+Si escribimos una prueba que invoque una funcion de 100 lineas pero NO ponemos ninguna 
+asercion ($this->assertEquals, etc.), la herramienta reportara un 100% DE COBERTURA 
+porque el interprete recorrio todas las lineas. Pero si esa funcion calcula mal los 
+salarios, la prueba pasara en verde igual, dando una falsa sensacion de seguridad.
+
+Por ello, una buena suite de pruebas combina:
+- Cobertura de lineas (para saber si hay codigo muerto o ramas olvidadas).
+- Aserciones de calidad sobre los casos borde (Edge cases).
+- Pruebas de mutacion (Mutation Testing) para verificar la robustez de las pruebas."
+
+
+================================================================================
+SECCION 3: PREGUNTAS TIPICAS DE DEFENSAS Y COMO RESPONDERLAS
+================================================================================
+
+P1: ¿Por que tu prueba unitaria no se conecta a MongoDB?
+R1: Porque si se conecta a la base de datos deja de ser unitaria y se convierte en una 
+    prueba de integracion. Las pruebas unitarias deben probar logica pura en memoria, 
+    aisladas del entorno exterior para ser deterministicas y ejecutarse en milisegundos.
+
+P2: ¿Cual es la diferencia principal entre la prueba de integracion y la de contrato?
+R2: La prueba de integracion valida el COMPORTAMIENTO INTERNO (que el endpoint guarde 
+    y consulte en la base de datos real). La prueba de contrato valida la INTERFAZ EXTERNA 
+    (que el formato JSON o Protobuf no cambie ni rompa el esquema que otros servicios esperan).
+
+P3: ¿Por que usamos el puerto 27019 y la bandera --rm en el contenedor efimero?
+R3: Usamos el puerto 27019 para que el contenedor efimero no interfiera con el contenedor 
+    de desarrollo habitual que suele correr en el 27017. Y usamos '--rm' para que el 
+    demonio de Docker limpie y elimine el contenedor automaticamente apenas termine la suite.
+
+P4: Si tengo 100% de cobertura, ¿puedo asegurar que mi sistema no tiene errores?
+R4: No. La cobertura es una metrica de ejecucion, no de correccion. Solo indica que el 
+    codigo fue ejecutado, pero no garantiza que se hayan cubierto todos los casos borde 
+    ni que las aserciones esten verificando los resultados correctos.
+
+
+================================================================================
+SECCION 4: PROMPT MAESTRO PARA GENERAR TUS DIAPOSITIVAS EN IA
+================================================================================
+
+Copia y pega el siguiente bloque de texto en ChatGPT, Gamma.app, Claude, Canva 
+o SlidesGPT para generar tu presentacion de diapositivas automaticamente:
+
+------------------------------------ COPIAR DESDE AQUI -------------------------
+Actúa como un experto en Arquitectura de Software y Microservicios. Genera el contenido detallado para una presentación de diapositivas profesional, técnica y visual sobre "Estrategias de Pruebas Automatizadas en Microservicios con Laravel y MongoDB".
+
+La presentación debe tener exactamente 8 diapositivas con la siguiente estructura:
+
+DIAPOSITIVA 1: Portada
+- Título: Estrategias de Pruebas en Microservicios: De la Unidad al Contenedor Efímero
+- Subtítulo: Implementación Práctica en Laravel 12, MongoDB y gRPC
+- Datos: Asignatura: Microservicios / COM600 - Expositor
+
+DIAPOSITIVA 2: Pirámide de Pruebas y Enfoque del Proyecto
+- Concepto de la pirámide de pruebas (Unitarias, Integración, Contrato, E2E).
+- Retos específicos al probar microservicios (red, persistencia, compatibilidad entre servicios).
+- Los 5 pilares que implementamos en nuestro microservicio Laravel.
+
+DIAPOSITIVA 3: Prueba Unitaria (Unit Testing)
+- Definición: Verificación de funciones aisladas en memoria sin red ni base de datos. Se mide en milisegundos.
+- Implementación en Laravel: Clase EmpleadoMetricasService y test EmpleadoAgregacionesTest.
+- Agregaciones probadas con patrón AAA: SUM (Nómina total), AVG (Salario promedio), GROUP BY (Métricas por puesto), MAX (Sueldo máximo) y casos borde (arrays vacíos).
+- Métrica: Tiempo de ejecución < 50 ms.
+
+DIAPOSITIVA 4: Prueba de Integración (Integration Testing)
+- Definición: Verificación del acoplamiento entre componentes (Endpoint HTTP -> Controlador -> Modelo Eloquent -> Base de Datos Real).
+- Implementación: EmpleadoIntegracionTest.
+- Flujo verificado: Petición POST /api/empleados, persistencia real en MongoDB, recuperación mediante GET /api/empleados/{id} y limpieza con DELETE.
+
+DIAPOSITIVA 5: Prueba de Contrato (Contract Testing)
+- Definición: Asegurar que el payload emitido por el servicio cumpla siempre la especificación esperada por los consumidores (evita romper clientes en producción).
+- Implementación dual en el proyecto:
+  1. Contrato REST: assertJsonStructure, validación estricta de tipos (assertIsString, assertIsNumeric) y protección contra fuga de credenciales (assertArrayNotHasKey).
+  2. Contrato gRPC / Protobuf: Serialización y deserialización de mensajes compilados (EmpleadoResponse y CrearEmpleadoRequest).
+
+DIAPOSITIVA 6: Contenedores Efímeros (Ephemeral Containers / Testcontainers)
+- Definición: Base de datos real que la suite levanta al iniciar y destruye al terminar para no depender de instalaciones locales.
+- Implementación: EphemeralContainerTest utilizando el ciclo de vida de PHPUnit (setUpBeforeClass y tearDownAfterClass).
+- Funcionamiento: docker run con bandera --rm en puerto aislado (27019), sondeo de disponibilidad (health-check ping), ejecución de agregaciones nativas ($group), y docker stop que autodestruye el contenedor sin dejar residuos.
+
+DIAPOSITIVA 7: Cobertura de Código (Code Coverage) y su Falacia
+- Definición: Porcentaje de líneas y ramas ejecutadas durante los tests (php artisan test --coverage).
+- La Máxima Fundamental: "La cobertura dice qué código se ejecutó, pero NUNCA si se verificó bien".
+- Análisis de la Falacia: Ejecutar 100 líneas sin asserts da 100% de cobertura pero 0% de confiabilidad. Importancia de las aserciones de calidad y pruebas de mutación.
+
+DIAPOSITIVA 8: Resultados y Conclusiones
+- Resumen de la suite ejecutada: 11 tests pasados con éxito (50 aserciones) en Laravel.
+- Buenas prácticas aprendidas para arquitecturas distribuidas de microservicios.
+- Espacio para preguntas y respuestas.
+
+Para cada diapositiva proporciona:
+1. Título impactante.
+2. Bullets con ideas clave concisas y técnicas.
+3. Elemento visual sugerido (diagrama, bloque de código o gráfico).
+4. "Notas del orador" (Speech) con lo que el estudiante debe decir oralmente en esa lámina.
+------------------------------------ TERMINA AQUI -------------------------------
+================================================================================

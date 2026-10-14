@@ -1,0 +1,77 @@
+================================================================================
+GUIA Y EXPLICACION: ¿PARA QUE SIRVEN LAS PRUEBAS UNITARIAS EN LARAVEL?
+================================================================================
+
+1. ¿QUE ES UNA PRUEBA UNITARIA (UNIT TEST)?
+--------------------------------------------------------------------------------
+Una prueba unitaria es un fragmento de codigo disenado para verificar de forma
+aislada que una parte muy pequena y especifica de tu sistema (como un metodo o una 
+funcion) funcione exactamente como se espera.
+
+En Laravel existen principalmente dos tipos de pruebas:
+- Unit Tests (Pruebas Unitarias): Prueban funciones o clases de manera aislada, 
+  sin tocar bases de datos reales, dependencias externas ni hacer peticiones HTTP.
+- Feature Tests (Pruebas de Integracion/Funcionales): Prueban un flujo completo, 
+  por ejemplo: "Hacer una peticion POST a la ruta /api/usuarios y verificar que el 
+  usuario se guardo en la base de datos".
+
+
+2. ¿PARA QUE SIRVEN Y POR QUE SON IMPORTANTES?
+--------------------------------------------------------------------------------
+- Detectar errores a tiempo: Te avisan al instante si hiciste un cambio y 
+  rompiste algo que antes funcionaba (evita "regresiones").
+- Confianza al refactorizar: Puedes reescribir o limpiar tu codigo con la tranquilidad 
+  de que si las pruebas pasan, la funcionalidad sigue intacta.
+- Documentacion viva: Sirven como guia clara de que se espera que haga cada funcion 
+  y que resultados deberia arrojar ante diferentes valores de entrada.
+- Ahorro de tiempo: En lugar de tener que abrir Postman o el navegador y probar 
+  manualmente cada pantalla o endpoint cada vez que modificas algo, corres un 
+  comando y en segundos se valida todo el sistema.
+
+
+3. ¿COMO CREAR UNA PRUEBA UNITARIA EN TU PROYECTO?
+--------------------------------------------------------------------------------
+Abre tu consola en la carpeta de este proyecto y ejecuta:
+
+    php artisan make:test NombreDeLaPruebaTest --unit
+
+Esto creara un archivo en la ruta:
+    tests/Unit/NombreDeLaPruebaTest.php
+
+
+4. EJEMPLO BASICO DE UNA PRUEBA UNITARIA
+--------------------------------------------------------------------------------
+Dentro del archivo generado, puedes escribir metodos de prueba. Por ejemplo:
+
+    <?php
+
+    namespace Tests\Unit;
+
+    use PHPUnit\Framework\TestCase;
+
+    class EjemploCalculoTest extends TestCase
+    {
+        public function test_que_el_descuento_se_calcule_correctamente(): void
+        {
+            $precioOriginal = 100;
+            $descuento = 0.20; // 20%
+            
+            $precioFinal = $precioOriginal - ($precioOriginal * $descuento);
+
+            // Verificamos que el resultado esperado sea 80
+            $this->assertEquals(80, $precioFinal);
+        }
+    }
+
+
+5. ¿COMO EJECUTAR LAS PRUEBAS?
+--------------------------------------------------------------------------------
+- Ejecutar todas las pruebas del proyecto:
+    php artisan test
+
+- Ejecutar unicamente las pruebas unitarias:
+    php artisan test --testsuite=Unit
+
+- Ejecutar un archivo especifico:
+    php artisan test tests/Unit/NombreDeLaPruebaTest.php
+================================================================================
