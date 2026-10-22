@@ -1,0 +1,72 @@
+================================================================================
+EXPLICACION DEL MICROSERVICIO MS-PADRON (ETAPA 1)
+================================================================================
+
+1. ARQUITECTURA Y ESTRUCTURA DE ARCHIVOS
+--------------------------------------------------------------------------------
+El proyecto se organizo bajo el estandar recomendado para microservicios Node.js:
+
+- package.json:
+  Contiene las dependencias del proyecto (express para la API REST, pg para la 
+  comunicacion con PostgreSQL y dotenv para la configuracion de variables de 
+  entorno). Ademas, define scripts como "npm start" para arrancar src/server.js.
+
+- .env:
+  Almacena las credenciales y puertos de configuracion sensibles (PORT=3001, 
+  DB_HOST=localhost, DB_PORT=5436, DB_USER=postgres, DB_PASSWORD, DB_NAME=ms_padron).
+  Este archivo no se sube a Git gracias a las reglas en .gitignore.
+
+- .env.example:
+  Sirve como plantilla publica para que cualquier miembro del equipo sepa que
+  variables debe definir en su entorno local sin exponer las contrasenas reales.
+
+- .gitignore:
+  Evita que la carpeta "node_modules" y el archivo ".env" se sincronicen al
+  repositorio remoto, protegiendo las credenciales y el espacio en Git.
+
+- README.md:
+  Documento explicativo con los requisitos, forma de instalacion, ejecucion y
+  detalle de las tablas creadas en la base de datos PostgreSQL 18.
+
+- tests/salud.test.js:
+  Archivo de pruebas para validar la estructura del modulo de tests.
+
+
+2. EXPLICACION DEL CODIGO FUENTE (src/)
+--------------------------------------------------------------------------------
+Nota: Cumpliendo el requerimiento estricto, el codigo fuente no contiene
+lineas de comentarios dentro de los archivos .js. La explicacion completa se
+detalla a continuacion:
+
+A) src/database.js:
+- Requiere 'Pool' de la libreria 'pg'. El pool permite mantener una conexion
+  reutilizable de alto rendimiento hacia PostgreSQL 18 en lugar de abrir y cerrar
+  conexiones manualmente por cada peticion.
+- Toma la configuracion dinamica proveniente de 'process.env' (host, port=5436, user,
+  password y database=ms_padron).
+- Funcion initDatabase():
+  Ejecuta una consulta SQL multi-declarativa que:
+  1. Crea la tabla 'facultades' con id (serial), nombre y sigla.
+  2. Crea la tabla 'carreras' vinculada por clave foranea (facultad_id) a 'facultades'.
+  3. Crea la tabla 'elecciones' con id, nombre, fecha y estado.
+  4. Crea la tabla 'electores' con id, carnet de identidad (ci unico), nombres,
+     apellidos, carrera_id y estado habilitado.
+  5. Crea la tabla 'candidatos' que asocia a un elector con una eleccion y un cargo/partido.
+  6. Realiza inserciones condicionales (ON CONFLICT DO NOTHING / WHERE NOT EXISTS)
+     para sembrar los datos de prueba iniciales sin duplicarlos si el servidor se reinicia.
+
+B) src/server.js:
+- Carga las variables de entorno invocando require('dotenv').config().
+- Instancia la aplicacion Express y habilita el middleware express.json() para
+  interpretar peticiones en formato JSON.
+- Define el endpoint GET /salud:
+  Al recibir una peticion, realiza un SELECT NOW() a la base de datos mediante
+  el pool. Si la base de datos responde, devuelve status HTTP 200 con un JSON
+  que incluye el estado "ok", el microservicio "ms-padron", el puerto 3001 y la
+  fecha/hora del servidor PostgreSQL. Si la conexion falla, devuelve status 500
+  notificando el error.
+- Funcion start():
+  Invoca primero a initDatabase() para garantizar que las tablas y datos de prueba
+  esten listos antes de levantar el servidor.
+  Posteriormente ejecuta app.listen en el puerto configurado (3001) para comenzar
+  a recibir trafico HTTP.
