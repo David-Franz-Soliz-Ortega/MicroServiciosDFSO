@@ -1,0 +1,82 @@
+================================================================================
+HOJA DE RUTA RAPIDA: COMO APLICAR TODAS LAS PRACTICAS AL CODIGO DEL DOCENTE
+================================================================================
+Cuando el docente te entregue el codigo base para realizar los despliegues,
+sigue exactamente este orden de ejecucion para no trabarte en ningun paso:
+
+--------------------------------------------------------------------------------
+FASE 1: INSPECCION Y PREPARACION DEL CODIGO (5 minutos)
+--------------------------------------------------------------------------------
+[ ] 1. Revisa el `package.json` del codigo recibido:
+       - Que dependencias usa (Express, Mongo, RabbitMQ, gRPC, GraphQL).
+       - Cual es el punto de entrada (`src/server.js`, `index.js`, etc.).
+[ ] 2. Separa `app.js` (rutas y middlewares) de `server.js` (`app.listen`),
+       para que Supertest (Practica 7) pueda probar sin abrir puertos.
+[ ] 3. Asegurate de que exista la ruta `GET /salud` respondiendo `200 OK`
+       (indispensable para Docker healthcheck y las sondas de Kubernetes).
+[ ] 4. Crea `.gitignore` y `.dockerignore` (excluyendo `node_modules/`,
+       `coverage/`, `.env`, `registros/`, `certs/`).
+
+--------------------------------------------------------------------------------
+FASE 2: INTEGRAR SEGURIDAD, MENSAJERIA Y OBSERVABILIDAD EN EL CODIGO
+--------------------------------------------------------------------------------
+Segun lo que te pida el docente en el examen/practica, enchufa los modulos:
+
+[ ] 1. SEGURIDAD (Ver `07_Practica11_Seguridad_JWT_TLS_SBOM.txt`):
+       - Copia `src/auth.js` (valida `JWT_SECRET`, middleware `autenticar` 401 y
+         `exigirRol` 403).
+       - Protege las rutas privadas en `app.js` DESPUES de `/salud` y `/metrics`.
+
+[ ] 2. MENSAJERIA RABBITMQ (Ver `02_Practica6_RabbitMQ_Mensajeria.txt`):
+       - Levanta RabbitMQ (`docker compose up -d`) y corre `dlq.js` / `topologia.js`.
+       - Conecta `cola.js` en el productor (con `persistent: true` y `messageId`).
+       - Configura el consumidor con `noAck: false`, `prefetch(1)`, limite por
+         `x-death` hacia la cola muerta y control de idempotencia.
+
+[ ] 3. OBSERVABILIDAD (Ver `06_Practica10_Observabilidad_Metricas_Logs_Trazas.txt`):
+       - Copia en `src/`: `registro.js` (Pino JSON), `correlacion.js` (propaga
+         `x-correlation-id` + `traceId`), `metricas.js` (`prom-client`) y
+         `telemetria.js` (OpenTelemetry).
+       - Registra `app.use(correlacion)`, el cronometro de metricas y `GET /metrics`
+         ANTES de las rutas.
+
+--------------------------------------------------------------------------------
+FASE 3: PRUEBAS AUTOMATIZADAS Y PUERTA DE CALIDAD LOCAL
+--------------------------------------------------------------------------------
+(Ver `03_Practica7_Pruebas_Automatizadas.txt`)
+[ ] 1. Configura `jest.config.js` y los scripts en `package.json`.
+[ ] 2. Corre `JWT_SECRET=clave_test npm test` y verifica que las pruebas
+       unitarias, de API (Supertest), de contenedor efimero (Testcontainers) y
+       de contrato pasen en verde (codigo de salida 0).
+[ ] 3. Corre `npm audit` y `npm sbom --sbom-format=cyclonedx > sbom.json`.
+
+--------------------------------------------------------------------------------
+FASE 4: CONTENERIZACION Y PIPELINE CI/CD EN GITHUB ACTIONS
+--------------------------------------------------------------------------------
+(Ver `01_Base_Docker_y_Comunicacion.txt` y `04_Practica8_Pipeline_CICD_GitHubActions.txt`)
+[ ] 1. Crea el `Dockerfile` multi-etapa con `USER node`.
+[ ] 2. Prueba en local que construye y arranca:
+       `docker build -t prueba:1.0.0 .`
+[ ] 3. Crea `.github/workflows/ci.yml` (jobs: `pruebas`, `calidad`, `imagen`).
+[ ] 4. Haz `git push` a GitHub, verifica que los jobs se pongan en verde y que
+       la imagen se publique en `ghcr.io/<usuario>/<repo>:1.0.0`.
+[ ] 5. Entra a "Package settings" en GitHub y cambia la visibilidad de la imagen
+       a **Public** (para evitar `ImagePullBackOff` en Kubernetes).
+
+--------------------------------------------------------------------------------
+FASE 5: DESPLIEGUE EN KUBERNETES, HELM Y GITOPS + MONITOREO EN VIVO
+--------------------------------------------------------------------------------
+(Ver `05_Practica9_Kubernetes_Helm_GitOps.txt` y `06_Practica10_Observabilidad...`)
+[ ] 1. Crea el cluster:
+       `k3d cluster create com600 --agents 2 -p "8080:80@loadbalancer"`
+[ ] 2. Crea el Secret en el cluster (sin subirlo a Git):
+       `kubectl create secret generic servicio-secret --from-literal=JWT_SECRET=clave123`
+[ ] 3. Ajusta el nombre de tu imagen `ghcr.io/<usuario>/<repo>:1.0.0` en
+       `k8s/deployment.yaml` y en `chart/values.yaml`.
+[ ] 4. Despliega con manifiestos (`kubectl apply -f k8s/`), o con Helm
+       (`helm install tareas ./chart`), o sincroniza con Argo CD
+       (`kubectl apply -f argocd/application.yaml`).
+[ ] 5. Verifica que responde por Ingress en `http://tareas.localhost:8080`.
+[ ] 6. Si debes mostrar Observabilidad (Practica 10), levanta
+       `docker compose -f docker-compose.obs.yml up -d` y abre Prometheus (9090),
+       Grafana (3300), Jaeger (16686) y Kibana (5601).

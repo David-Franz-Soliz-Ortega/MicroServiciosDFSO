@@ -1,0 +1,291 @@
+================================================================================
+PRACTICA 10: OBSERVABILIDAD (Logs JSON + ELK, Metricas Prometheus/Grafana y Trazas)
+================================================================================
+Objetivo: Instrumentar el codigo que nos pase el docente con los tres pilares de
+la observabilidad (Registros estructurados Pino/ELK, Metricas Prom-Client/Prometheus/Grafana
+y Trazado distribuido con OpenTelemetry/Jaeger) y levantar la pila de monitoreo.
+
+* PRECAUCION DE MEMORIA RAM: Elasticsearch consume ~1 GB. No corras el cluster
+de Kubernetes (Practica 9) al mismo tiempo que la pila de Elasticsearch si tu PC
+tiene poca RAM.
+
+--------------------------------------------------------------------------------
+1. DESPLIEGUE DE LA PILA DE OBSERVABILIDAD (docker-compose.obs.yml)
+--------------------------------------------------------------------------------
+Crea la carpeta `prometheus/` y `registros/` antes de levantar este archivo:
+  mkdir -p prometheus registros
+
+Archivo: docker-compose.obs.yml
+-------------------------------
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes: ["./prometheus:/etc/prometheus:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["3300:3000"]
+    environment: ["GF_SECURITY_ADMIN_PASSWORD=com600"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports: ["16686:16686", "4318:4318"]
+    environment: ["COLLECTOR_OTLP_ENABLED=true"]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports: ["9200:9200"]
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./registros:/registros:ro
+    depends_on: [elasticsearch]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    ports: ["5601:5601"]
+    depends_on: [elasticsearch]
+
+--------------------------------------------------------------------------------
+2. ARCHIVOS DE CONFIGURACION DE LA PILA (Prometheus y Logstash)
+--------------------------------------------------------------------------------
+A) Archivo: prometheus/prometheus.yml
+-------------------------------------
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+rule_files:
+  - /etc/prometheus/reglas.yml
+scrape_configs:
+  - job_name: servicio-principal
+    static_configs:
+      - targets: ["host.docker.internal:3000"]
+  - job_name: servicio-secundario
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+
+B) Archivo: prometheus/reglas.yml (Regla de Alerta SLO)
+-------------------------------------------------------
+groups:
+  - name: slo-servicio
+    rules:
+      - alert: TasaDeErroresAlta
+        expr: |
+          sum(rate(http_request_duration_seconds_count{codigo=~"5.."}[5m]))
+          / sum(rate(http_request_duration_seconds_count[5m])) > 0.05
+        for: 2m
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "Mas del 5% de las peticiones falla hace 2 minutos"
+          accion: "Revisar el tablero en Grafana y buscar el traceId en Jaeger"
+
+C) Archivo: logstash.conf
+-------------------------
+input {
+  file {
+    path => "/registros/*.log"
+    start_position => "beginning"
+    sincedb_path => "/dev/null"
+    codec => json
+  }
+}
+output {
+  elasticsearch {
+    hosts => ["http://elasticsearch:9200"]
+    index => "microservicios-%{+YYYY.MM.dd}"
+  }
+}
+
+Comando para levantar toda la pila:
+  docker compose -f docker-compose.obs.yml up -d
+  docker compose -f docker-compose.obs.yml ps
+
+Interfaces Web:
+  - Prometheus : http://localhost:9090/targets
+  - Grafana    : http://localhost:3300 (usuario: admin / clave: com600)
+  - Jaeger     : http://localhost:16686
+  - Kibana     : http://localhost:5601 (Data View: microservicios-*)
+
+--------------------------------------------------------------------------------
+3. INSTRUMENTACION DEL CODIGO DEL DOCENTE (Los 4 modulos en src/)
+--------------------------------------------------------------------------------
+Instala todas las librerias en el servicio del docente con un solo comando:
+  npm install pino pino-http prom-client @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/api
+
+A) Archivo: src/registro.js (Logs estructurados JSON con Pino)
+--------------------------------------------------------------
+const pino = require("pino");
+const fs = require("fs");
+
+if (!fs.existsSync("./registros")) fs.mkdirSync("./registros", { recursive: true });
+const servicio = process.env.SERVICIO || "tareas-api";
+
+const destinos = pino.multistream([
+  { stream: process.stdout },
+  { stream: pino.destination("./registros/" + servicio + ".log") },
+]);
+
+const registro = pino({
+  level: process.env.NIVEL_LOG || "info",
+  base: { servicio, entorno: process.env.ENTORNO || "laboratorio" },
+  timestamp: pino.stdTimeFunctions.isoTime,
+  formatters: { level: (etiqueta) => ({ nivel: etiqueta }) },
+}, destinos);
+
+module.exports = { registro };
+
+B) Archivo: src/correlacion.js (Propagacion de x-correlation-id + traceId)
+--------------------------------------------------------------------------
+const { randomUUID } = require("crypto");
+const { trace, context } = require("@opentelemetry/api");
+const { registro } = require("./registro");
+
+function idsDeTraza() {
+  const span = trace.getSpan(context.active());
+  if (!span) return {};
+  const { traceId, spanId } = span.spanContext();
+  return { traceId, spanId };
+}
+
+function correlacion(req, res, next) {
+  req.idCorrelacion = req.get("x-correlation-id") || randomUUID();
+  res.set("x-correlation-id", req.idCorrelacion);
+  req.registro = registro.child({
+    idCorrelacion: req.idCorrelacion,
+    ruta: req.path,
+    metodo: req.method,
+    ...idsDeTraza(),
+  });
+  next();
+}
+
+module.exports = { correlacion };
+
+* NOTA: Cuando este servicio llame a otro por `fetch`, SIEMPRE envia la cabecera:
+  headers: { "Content-Type": "application/json", "x-correlation-id": req.idCorrelacion }
+
+C) Archivo: src/metricas.js (Histograma HTTP + Metricas de Negocio)
+-------------------------------------------------------------------
+const cliente = require("prom-client");
+cliente.collectDefaultMetrics();
+
+const duracion = new cliente.Histogram({
+  name: "http_request_duration_seconds",
+  help: "Duracion de las peticiones HTTP en segundos",
+  labelNames: ["metodo", "ruta", "codigo"],
+  buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 2, 5],
+});
+
+// Ejemplo de metrica de negocio propia (Contador):
+const operacionesConfirmadas = new cliente.Counter({
+  name: "operaciones_confirmadas_total",
+  help: "Total de operaciones de negocio confirmadas",
+  labelNames: ["tipo"], // NUNCA pongas IDs de usuario o correos aqui (cardinalidad!)
+});
+
+module.exports = { cliente, duracion, operacionesConfirmadas };
+
+D) Archivo: src/telemetria.js (OpenTelemetry exportando a Jaeger)
+-----------------------------------------------------------------
+const { NodeSDK } = require("@opentelemetry/sdk-node");
+const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
+const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
+const { resourceFromAttributes } = require("@opentelemetry/resources");
+
+const sdk = new NodeSDK({
+  resource: resourceFromAttributes({
+    "service.name": process.env.SERVICIO || "tareas-api",
+  }),
+  traceExporter: new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318/v1/traces",
+  }),
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+sdk.start();
+
+E) Archivo opcional: src/trazas.js (Para crear spans manuales de negocio)
+-------------------------------------------------------------------------
+const { trace } = require("@opentelemetry/api");
+const trazador = trace.getTracer(process.env.SERVICIO || "tareas-api");
+
+async function conSpan(nombre, atributos, fn) {
+  return trazador.startActiveSpan(nombre, async (span) => {
+    try {
+      span.setAttributes(atributos); // NUNCA pongas claves ni datos personales
+      return await fn(span);
+    } catch (e) {
+      span.recordException(e);
+      throw e;
+    } finally {
+      span.end();
+    }
+  });
+}
+module.exports = { conSpan };
+
+--------------------------------------------------------------------------------
+4. COMO CONECTAR TODO EN EL src/app.js DEL DOCENTE
+--------------------------------------------------------------------------------
+Agrega esto ANTES de declarar las rutas en `src/app.js`:
+
+const { correlacion } = require("./correlacion");
+const { cliente, duracion } = require("./metricas");
+
+app.use(correlacion);
+
+app.use((req, res, next) => {
+  const fin = duracion.startTimer();
+  res.on("finish", () => fin({
+    metodo: req.method,
+    ruta: req.route ? req.route.path : "sin_ruta", // Patron de ruta, no el ID concreto!
+    codigo: res.statusCode,
+  }));
+  next();
+});
+
+app.get("/metrics", async (_req, res) => {
+  res.set("Content-Type", cliente.register.contentType);
+  res.end(await cliente.register.metrics());
+});
+
+--------------------------------------------------------------------------------
+5. COMO ARRANCAR LOS SERVICIOS INSTRUMENTADOS
+--------------------------------------------------------------------------------
+Siempre usa `-r ./src/telemetria.js` para que OpenTelemetry se cargue ANTES que Express:
+
+  # En Git Bash:
+  SERVICIO=tareas-api node -r ./src/telemetria.js src/server.js
+
+  # En PowerShell:
+  $env:SERVICIO="tareas-api"; node -r ./src/telemetria.js src/server.js
+
+--------------------------------------------------------------------------------
+6. CONSULTAS PROMQL PARA COPIAR Y PEGAR EN GRAFANA
+--------------------------------------------------------------------------------
+* Data source en Grafana: `http://prometheus:9090` (NUNCA pongas localhost).
+
+- Panel 1 (Peticiones por segundo - Unit: requests/sec):
+  sum by (ruta) (rate(http_request_duration_seconds_count[1m]))
+
+- Panel 2 (Latencia Promedio vs Percentil 95 vs Percentil 99 - Unit: seconds):
+  # Consulta A (Promedio):
+  sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m]))
+  # Consulta B (Percentil 95):
+  histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+  # Consulta C (Percentil 99):
+  histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+
+- Panel 3 (Tasa de Errores 5xx - Unit: Percent 0.0-1.0):
+  sum(rate(http_request_duration_seconds_count{codigo=~"5.."}[5m])) / sum(rate(http_request_duration_seconds_count[5m]))
+
+- Presupuesto de error consumido (frente a 1% permitido):
+  (sum(rate(http_request_duration_seconds_count{codigo=~"5.."}[1h])) / sum(rate(http_request_duration_seconds_count[1h]))) / 0.01

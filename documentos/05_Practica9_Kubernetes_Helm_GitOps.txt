@@ -1,0 +1,314 @@
+================================================================================
+PRACTICA 9: DESPLIEGUE EN KUBERNETES CON HELM Y GITOPS (Argo CD)
+================================================================================
+Objetivo: Tomar la imagen publicada por el pipeline (Practica 8) y desplegarla
+en un cluster Kubernetes local (k3d), con ConfigMap, Secret, sondas de salud
+(readiness/liveness), Ingress, empaquetado Helm para multiples entornos y
+sincronizacion GitOps automatica con Argo CD.
+
+* REGLA DE ORO (Penalizacion -5 pts): NUNCA uses la etiqueta ":latest" en ningun
+manifiesto de Kubernetes. Usa siempre una version fija como ":1.0.0" o el SHA.
+
+--------------------------------------------------------------------------------
+1. CREAR EL CLUSTER LOCAL CON K3D
+--------------------------------------------------------------------------------
+  # Crear el cluster con 2 nodos agentes y el balanceador en el puerto 8080:
+  k3d cluster create com600 --agents 2 -p "8080:80@loadbalancer"
+
+  # Verificar que estas en el contexto correcto y los nodos estan en Ready:
+  kubectl config current-context
+  kubectl get nodes -o wide
+  kubectl get pods -A
+
+--------------------------------------------------------------------------------
+2. REQUISITO EN EL CODIGO DEL DOCENTE: ENDPOINT /salud
+--------------------------------------------------------------------------------
+Antes de construir la imagen o desplegar, asegurate de que el codigo Express
+tenga el endpoint de salud para las sondas de Kubernetes:
+
+  app.get("/salud", (_req, res) => {
+    res.status(200).json({ estado: "ok" });
+  });
+
+  # Si te piden separar readiness (verifica BD) y liveness (solo proceso vivo):
+  app.get("/live", (_req, res) => res.status(200).json({ vivo: true }));
+  app.get("/ready", async (_req, res) => {
+    // Si depende de Mongo/Rabbit y esta caido, devolver 503 para salir del Service
+    res.status(200).json({ listo: true });
+  });
+
+--------------------------------------------------------------------------------
+3. MANIFIESTOS DECLARATIVOS (Carpeta k8s/)
+--------------------------------------------------------------------------------
+A) Archivo: k8s/configmap.yaml (Configuracion no sensible)
+----------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: servicio-config
+data:
+  APP_ENTORNO: "laboratorio"
+  APP_PAGINA_TAM: "20"
+
+B) Crear el Secret por comando (NUNCA subir un Secret con claves reales a Git)
+------------------------------------------------------------------------------
+  kubectl create secret generic servicio-secret \
+    --from-literal=JWT_SECRET=clave-secreta-k8s-2026 \
+    --from-literal=APP_CLAVE_API=clave-lab-2026
+
+C) Archivo: k8s/deployment.yaml (Replicas, Recursos, Env y Sondas)
+------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tareas
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: tareas
+  template:
+    metadata:
+      labels:
+        app: tareas
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/USUARIO/REPO:1.0.0
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          envFrom:
+            - configMapRef:
+                name: servicio-config
+            - secretRef:
+                name: servicio-secret
+          readinessProbe:
+            httpGet:
+              path: /salud
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /salud
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+D) Archivo: k8s/service.yaml (Nombre estable e IP interna)
+----------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: tareas
+spec:
+  selector:
+    app: tareas
+  ports:
+    - port: 80
+      targetPort: 3000
+
+E) Archivo: k8s/ingress.yaml (Publicar hacia el navegador por Traefik)
+----------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tareas
+spec:
+  rules:
+    - host: tareas.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tareas
+                port:
+                  number: 80
+
+Comandos para aplicar y verificar la carpeta k8s/:
+  kubectl apply -f k8s/
+  kubectl get pods -l app=tareas -o wide
+  kubectl get endpoints tareas
+  kubectl get ingress
+  curl -H "Host: tareas.localhost" http://localhost:8080/tareas
+  # En el navegador abrir: http://tareas.localhost:8080/tareas
+
+Comandos de Rolling Update y Rollback:
+  kubectl rollout status deployment/tareas
+  kubectl rollout history deployment/tareas
+  kubectl rollout undo deployment/tareas
+
+--------------------------------------------------------------------------------
+4. EMPAQUETADO CON HELM (Carpeta chart/ para multiples entornos)
+--------------------------------------------------------------------------------
+Estructura de archivos:
+  chart/
+    Chart.yaml
+    values.yaml
+    values-prod.yaml
+    templates/
+      deployment.yaml
+      service.yaml
+      ingress.yaml
+
+A) chart/Chart.yaml:
+apiVersion: v2
+name: microservicio
+description: Chart de despliegue COM-600
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+B) chart/values.yaml (Entorno Dev/Laboratorio por defecto):
+replicaCount: 2
+image:
+  repository: ghcr.io/USUARIO/REPO
+  tag: "1.0.0"
+service:
+  port: 80
+  targetPort: 3000
+ingress:
+  host: tareas.localhost
+
+C) chart/values-prod.yaml (Entorno Produccion):
+replicaCount: 4
+image:
+  repository: ghcr.io/USUARIO/REPO
+  tag: "2.0.0"
+ingress:
+  host: tareas-prod.localhost
+
+D) Plantilla chart/templates/deployment.yaml:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.targetPort | default 3000 }}
+          readinessProbe:
+            httpGet:
+              path: /salud
+              port: {{ .Values.service.targetPort | default 3000 }}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /salud
+              port: {{ .Values.service.targetPort | default 3000 }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+E) Plantilla chart/templates/service.yaml:
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  selector:
+    app: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort | default 3000 }}
+
+F) Plantilla chart/templates/ingress.yaml:
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}
+                port:
+                  number: {{ .Values.service.port }}
+
+Comandos de Helm:
+  helm template tareas ./chart                          # Previsualizar YAML
+  kubectl delete -f k8s/                                # Limpiar antes de usar Helm
+  helm install tareas ./chart                           # Instalar entorno base
+  helm install tareas-prod ./chart -f chart/values-prod.yaml --namespace prod --create-namespace
+  helm list -A                                          # Ver ambas instalaciones
+  helm upgrade tareas ./chart --set replicaCount=3      # Actualizar
+  helm history tareas                                   # Ver revisiones
+  helm rollback tareas 1                                # Revertir
+
+--------------------------------------------------------------------------------
+5. GITOPS CON ARGO CD (Sincronizacion automatica desde GitHub)
+--------------------------------------------------------------------------------
+# 1. Desinstalar releases de Helm para que no peleen con Argo CD:
+  helm uninstall tareas
+  helm uninstall tareas-prod -n prod
+
+# 2. Instalar Argo CD en el cluster:
+  kubectl create namespace argocd
+  kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  kubectl get pods -n argocd -w   # Esperar a que todos esten en Running
+
+# 3. Obtener la contrasena inicial del usuario "admin":
+  # En Git Bash:
+  kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+  # En PowerShell:
+  $b64 = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
+  [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+
+# 4. Abrir el tunel hacia la interfaz web (https://localhost:8090):
+  kubectl port-forward svc/argocd-server -n argocd 8090:443
+
+# 5. Declarar argocd/application.yaml y aplicarlo:
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tareas
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/USUARIO/REPO.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+  kubectl apply -f argocd/application.yaml
+
+* A partir de aqui NO ejecutes `kubectl apply`. Cualquier cambio (ej. subir
+replicas) hazlo editando `k8s/deployment.yaml`, haciendo `git commit` y `git push`.
+Argo CD actualizara el cluster solo y corregira cualquier cambio manual (`selfHeal`).

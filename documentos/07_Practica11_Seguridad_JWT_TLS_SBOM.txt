@@ -1,0 +1,192 @@
+================================================================================
+PRACTICA 11: SEGURIDAD EN MICROSERVICIOS (JWT, Roles, Secretos, TLS y Cadena)
+================================================================================
+Objetivo: Proteger el codigo que entregue el docente aplicando autenticacion JWT
+(401), autorizacion por roles (403), externalizacion estricta de secretos,
+cifrado en transito (HTTPS/TLS) y auditoria de la cadena de suministro (SBOM y
+escaneo de vulnerabilidades en dependencias e imagenes Docker).
+
+--------------------------------------------------------------------------------
+1. INSTALACION Y VARIABLES DE ENTORNO (.env)
+--------------------------------------------------------------------------------
+Instala jsonwebtoken y dotenv en el servicio:
+  npm install jsonwebtoken dotenv
+
+Crea un archivo `.env.example` (que SI se sube a Git) con valores de muestra:
+  JWT_SECRET=reemplazar-por-clave-segura-en-produccion
+  PORT=3000
+
+Y un archivo `.env` (que NUNCA se sube a Git, agregalo a `.gitignore`):
+  JWT_SECRET=clave-super-secreta-examen-2026
+  PORT=3000
+
+* INCIDENTE DE SEGURIDAD (Pregunta tipica): Si alguien sube un `.env` real a Git
+y luego hace otro commit borrandolo, el secreto SIGUE expuesto en el historial
+(`git show HEAD~1:.env`). La solucion real es:
+  1ro) ROTAR/REVOCAR la clave inmediatamente en produccion.
+  2do) Limpiar el historial de Git (git filter-repo / BFG).
+
+--------------------------------------------------------------------------------
+2. MIDDLEWARE DE AUTENTICACION (401) Y AUTORIZACION POR ROLES (403)
+--------------------------------------------------------------------------------
+Crea `src/auth.js`:
+
+const jwt = require("jsonwebtoken");
+
+const SECRETO = process.env.JWT_SECRET;
+if (!SECRETO) {
+  throw new Error(
+    "FATAL: la variable de entorno JWT_SECRET no esta definida. El servicio se niega a arrancar."
+  );
+}
+
+// Verifica identidad: devuelve 401 Unauthorized si falta el token, expiro o la firma es invalida
+function autenticar(req, res, next) {
+  const cabecera = req.headers.authorization || "";
+  const [tipo, token] = cabecera.split(" ");
+  if (tipo !== "Bearer" || !token) {
+    return res.status(401).json({ error: "falta el token" });
+  }
+  try {
+    req.usuario = jwt.verify(token, SECRETO);
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: e.message });
+  }
+}
+
+// Verifica permisos: devuelve 403 Forbidden si esta autenticado pero su rol no alcanza
+function exigirRol(...roles) {
+  return (req, res, next) => {
+    if (!req.usuario) {
+      return res.status(401).json({ error: "no autenticado" });
+    }
+    if (!roles.includes(req.usuario.rol)) {
+      return res.status(403).json({ error: "rol insuficiente" });
+    }
+    next();
+  };
+}
+
+module.exports = { autenticar, exigirRol, SECRETO };
+
+--------------------------------------------------------------------------------
+3. COMO PROTEGER LAS RUTAS EN EL src/app.js DEL DOCENTE
+--------------------------------------------------------------------------------
+const { autenticar, exigirRol } = require("./auth");
+
+// Ejemplo 1: Proteger todas las rutas de un recurso (exige estar autenticado -> 401 si no)
+app.use("/tareas", autenticar);
+
+// Ejemplo 2: Exigir rol "admin" especificamente para borrar (403 si es rol "usuario")
+app.delete("/tareas/:id", exigirRol("admin"), (req, res) => {
+  // logica de borrado...
+});
+
+* Nota: Deja `/salud` y `/metrics` ANTES del `app.use(autenticar)` si Kubernetes
+o Prometheus necesitan consultarlos sin token.
+
+--------------------------------------------------------------------------------
+4. SCRIPTS PARA EMITIR E INSPECCIONAR TOKENS JWT
+--------------------------------------------------------------------------------
+A) Emitir tokens de prueba (`src/emitir-tokens.js`):
+----------------------------------------------------
+require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const SECRETO = process.env.JWT_SECRET;
+
+// Token de usuario normal (15 minutos de vida)
+const tokenUsuario = jwt.sign(
+  { sub: "u-100", nombre: "Ana Quispe", rol: "usuario" },
+  SECRETO,
+  { expiresIn: "15m", issuer: "com600" }
+);
+
+// Token de administrador
+const tokenAdmin = jwt.sign(
+  { sub: "u-001", nombre: "Admin", rol: "admin" },
+  SECRETO,
+  { expiresIn: "15m", issuer: "com600" }
+);
+
+// Token ya vencido (para demostrar rechazo 401 "jwt expired")
+const tokenVencido = jwt.sign(
+  { sub: "u-100", rol: "usuario" },
+  SECRETO,
+  { expiresIn: "-10s" }
+);
+
+console.log("TOKEN_USUARIO=", tokenUsuario);
+console.log("TOKEN_ADMIN=", tokenAdmin);
+console.log("TOKEN_VENCIDO=", tokenVencido);
+
+* Regla de seguridad JWT: La firma HMAC-SHA256 garantiza INTEGRIDAD y AUTENTICIDAD
+(nadie puede cambiar `"rol":"usuario"` a `"rol":"admin"` sin conocer `JWT_SECRET`),
+pero NO cifra el contenido (cualquiera lo decodifica en base64url). Jamas pongas
+contrasenas, tarjetas o datos sensibles en el payload del JWT.
+
+B) Probar las respuestas 401, 403 y 200/204 con curl:
+-----------------------------------------------------
+  # 1. Sin token -> 401 Unauthorized
+  curl -i http://localhost:3000/tareas
+
+  # 2. Con token de usuario -> 200 OK en GET, pero 403 Forbidden en DELETE
+  curl -i -H "Authorization: Bearer <TOKEN_USUARIO>" http://localhost:3000/tareas
+  curl -i -X DELETE -H "Authorization: Bearer <TOKEN_USUARIO>" http://localhost:3000/tareas/1
+
+  # 3. Con token de admin -> 204 No Content en DELETE
+  curl -i -X DELETE -H "Authorization: Bearer <TOKEN_ADMIN>" http://localhost:3000/tareas/1
+
+--------------------------------------------------------------------------------
+5. PROTEGER EL TOKEN EN TRANSITO CON HTTPS / TLS
+--------------------------------------------------------------------------------
+# Paso 1: Generar certificado autofirmado con OpenSSL:
+  mkdir -p certs
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout certs/servidor.key \
+    -out certs/servidor.crt \
+    -days 365 \
+    -subj "/CN=localhost"
+
+# Paso 2: Crear `src/server-tls.js`:
+require("dotenv").config();
+const fs = require("fs");
+const https = require("https");
+const app = require("./app");
+
+const opciones = {
+  key: fs.readFileSync("certs/servidor.key"),
+  cert: fs.readFileSync("certs/servidor.crt"),
+};
+
+https.createServer(opciones, app).listen(3443, () => {
+  console.log("Servidor HTTPS escuchando en https://localhost:3443");
+});
+
+# Paso 3: Probar con curl:
+  # Falla porque el certificado es autofirmado:
+  curl -i https://localhost:3443/tareas
+  # Pasa indicando explicitamente el certificado de confianza (--cacert):
+  curl -i --cacert certs/servidor.crt -H "Authorization: Bearer <TOKEN_USUARIO>" https://localhost:3443/tareas
+
+--------------------------------------------------------------------------------
+6. SEGURIDAD EN LA CADENA DE SUMINISTRO (Dependencias, Imagen, SBOM y Pipeline)
+--------------------------------------------------------------------------------
+# 1. Auditar y corregir vulnerabilidades en paquetes npm:
+  npm audit
+  npm audit --json > auditoria.json
+  npm audit fix
+  npm test   # Verificar siempre que la actualizacion no rompio las pruebas
+
+# 2. Generar el SBOM (Software Bill of Materials - inventario de dependencias):
+  npm sbom --sbom-format=cyclonedx > sbom.json
+
+# 3. Construir la imagen Docker segura (con USER node) y escanearla:
+  docker build -t servicio-seguro:1.0.0 .
+
+  # Escaneo de vulnerabilidades de la imagen con Trivy (en contenedor, sin instalar nada):
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+    aquasec/trivy:latest image servicio-seguro:1.0.0
+
+  # O con Docker Scout (incluido en Docker Desktop):
+  docker scout cves servicio-seguro:1.0.0

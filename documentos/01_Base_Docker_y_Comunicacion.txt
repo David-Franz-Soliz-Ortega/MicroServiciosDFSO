@@ -1,0 +1,133 @@
+================================================================================
+GUIA MAESTRA DE DESPLIEGUE Y ORQUESTACION CON DOCKER (Practicas 2, 3, 4 y 5)
+================================================================================
+Objetivo: Tomar cualquier codigo que entregue el docente (REST, GraphQL o gRPC),
+contenerizarlo con buenas practicas y desplegarlo junto a su base de datos.
+
+--------------------------------------------------------------------------------
+1. ARCHIVO .dockerignore (Obligatorio en la raiz de cada microservicio)
+--------------------------------------------------------------------------------
+Evita copiar basura o secretos dentro de la imagen de Docker.
+Crea el archivo ".dockerignore" con este contenido exacto:
+
+node_modules/
+coverage/
+.env
+.git/
+*.log
+npm-debug.log*
+
+--------------------------------------------------------------------------------
+2. DOCKERFILE MULTI-ETAPA Y SEGURO (Practica 2 y 11)
+--------------------------------------------------------------------------------
+Si el docente te pasa un codigo Node.js, crea un archivo llamado "Dockerfile"
+en la raiz de ese servicio. Este formato aprovecha el cache de capas y corre con
+un usuario sin privilegios (seguridad):
+
+# Etapa 1: Instalacion de dependencias
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Etapa 2: Imagen final liviana y segura
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
+COPY . .
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+USER node
+CMD ["node", "src/server.js"]
+
+* NOTA: Revisa en el package.json del docente cual es el archivo de entrada
+(puede ser "index.js", "app.js" o "src/server.js") y ajustalo en la linea CMD.
+* Si no tiene package-lock.json, cambia "npm ci --omit=dev" por "npm install --omit=dev".
+
+--------------------------------------------------------------------------------
+3. ARCHIVO .env (Variables de entorno fuera del codigo)
+--------------------------------------------------------------------------------
+Crea un archivo ".env" junto a tu docker-compose.yml para parametrizar puertos
+y bases de datos sin quemarlos en el codigo:
+
+API_PORT=3000
+MONGO_DB=bd_examen
+MONGOEXPRESS_PORT=8081
+JWT_SECRET=clave-secreta-examen-2026
+
+--------------------------------------------------------------------------------
+4. DOCKER-COMPOSE.YML (Despliegue de API + Base de Datos + Red + Healthcheck)
+--------------------------------------------------------------------------------
+Este archivo levanta el microservicio esperando a que MongoDB este realmente
+listo (service_healthy), con persistencia en volumen y red aislada:
+
+services:
+  api:
+    build: .
+    container_name: api_servicio
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      MONGO_URL: mongodb://mongo:27017/${MONGO_DB:-bd_examen}
+      JWT_SECRET: ${JWT_SECRET:-secreto_desarrollo}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - red_microservicios
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    container_name: mongo_db
+    volumes:
+      - datos_mongo:/data/db
+    networks:
+      - red_microservicios
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # Si el codigo usa gRPC como segundo servicio interno (Practica 5):
+  # grpc-service:
+  #   build: ./servicio-grpc
+  #   networks:
+  #     - red_microservicios
+  #   # No lleva "ports" para no exponerlo fuera de la red de Docker
+
+volumes:
+  datos_mongo:
+
+networks:
+  red_microservicios:
+    driver: bridge
+
+--------------------------------------------------------------------------------
+5. COMANDOS PARA EJECUTAR Y VERIFICAR EL DESPLIEGUE
+--------------------------------------------------------------------------------
+# 1. Construir imagen sola para probar que el Dockerfile funciona:
+docker build -t mi-servicio:1.0.0 .
+
+# 2. Levantar toda la arquitectura en segundo plano reconstruyendo cambios:
+docker compose up -d --build
+
+# 3. Verificar que los contenedores esten en estado "running" o "healthy":
+docker compose ps
+
+# 4. Ver logs en tiempo real si algo falla al arrancar:
+docker compose logs -f api
+
+# 5. Probar el endpoint de salud o rutas:
+curl -i http://localhost:3000/salud
+
+# 6. Detener todo conservando los datos de la base:
+docker compose down
+
+# 7. Detener todo BORRANDO los volumenes (limpieza total):
+docker compose down -v

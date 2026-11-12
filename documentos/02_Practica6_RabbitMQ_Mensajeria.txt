@@ -1,0 +1,207 @@
+================================================================================
+PRACTICA 6: MENSAJERIA ASINCRONA CON RABBITMQ (Despliegue e Integracion)
+================================================================================
+Objetivo: Desplegar un broker RabbitMQ y conectar el codigo del docente para que
+publique eventos de dominio (Productor) y los procese de forma desacoplada,
+segura, con reintentos (DLQ) e idempotencia (Consumidor).
+
+--------------------------------------------------------------------------------
+1. DESPLIEGUE DEL BROKER (docker-compose.yml)
+--------------------------------------------------------------------------------
+Importante: Usa siempre la imagen con "-management" para tener la consola web en
+el puerto 15672 y crea un usuario propio (guest solo conecta desde localhost).
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: com600-rabbit
+    hostname: rabbit-uno
+    ports:
+      - "5672:5672"     # Puerto AMQP para los microservicios Node.js
+      - "15672:15672"   # Consola web: http://localhost:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbit_datos:/var/lib/rabbitmq
+
+volumes:
+  rabbit_datos:
+
+Comandos de arranque y verificacion:
+  docker compose up -d
+  docker compose ps
+  docker compose logs rabbitmq | tail -n 5
+  # ESPERAR hasta leer: "Server startup complete" (tarda ~15 segundos).
+
+--------------------------------------------------------------------------------
+2. VARIABLES DE ENTORNO (.env en Productor y Consumidor)
+--------------------------------------------------------------------------------
+Nunca escribas credenciales en el codigo (penalizacion de -3 pts):
+
+RABBITMQ_URL=amqp://admin:admin123@localhost:5672
+EXCHANGE=eventos.dominio
+CLAVE=recurso.confirmado
+COLA=notificaciones.cola
+PORT=3000
+
+* NOTA SI CORREN EN DOCKER COMPOSE: Cambia "localhost" por "rabbitmq" en RABBITMQ_URL.
+
+--------------------------------------------------------------------------------
+3. SCRIPT DE TOPOLOGIA Y COLA DE MENSAJES MUERTOS (dlq.js / topologia.js)
+--------------------------------------------------------------------------------
+Ejecuta este script antes de levantar los servicios para dejar creados los
+exchanges, colas durables, circuito de reintento (5 seg) y cola de muertos (DLQ):
+
+const amqp = require("amqplib");
+const URL = process.env.RABBITMQ_URL || "amqp://admin:admin123@localhost:5672";
+
+async function configurarTopologia() {
+  const conexion = await amqp.connect(URL);
+  const canal = await conexion.createChannel();
+
+  // 1. Exchanges durables (puede ser "direct" o "topic")
+  await canal.assertExchange("eventos.dominio", "topic", { durable: true });
+  await canal.assertExchange("reintentos", "direct", { durable: true });
+
+  // 2. Cola principal: si falla (nack sin requeue), va al exchange "reintentos"
+  await canal.assertQueue("notificaciones.cola", {
+    durable: true,
+    deadLetterExchange: "reintentos",
+    deadLetterRoutingKey: "recurso.confirmado"
+  });
+  await canal.bindQueue("notificaciones.cola", "eventos.dominio", "recurso.*");
+
+  // 3. Cola de reintento: retiene 5000ms (5s) y lo devuelve al exchange principal
+  await canal.assertQueue("notificaciones.reintento", {
+    durable: true,
+    messageTtl: 5000,
+    deadLetterExchange: "eventos.dominio",
+    deadLetterRoutingKey: "recurso.confirmado"
+  });
+  await canal.bindQueue("notificaciones.reintento", "reintentos", "recurso.confirmado");
+
+  // 4. Cola muerta (DLQ): donde van los mensajes tras agotar intentos
+  await canal.assertQueue("notificaciones.muertos", { durable: true });
+
+  console.log("Topologia y DLQ creadas correctamente");
+  await conexion.close();
+}
+configurarTopologia();
+
+* Si te sale error "PRECONDITION_FAILED - inequivalent arg": entra a
+http://localhost:15672 -> Queues -> selecciona la cola -> Delete queue y vuelve a correr.
+
+--------------------------------------------------------------------------------
+4. INTEGRAR EL PRODUCTOR EN EL CODIGO DEL DOCENTE (cola.js)
+--------------------------------------------------------------------------------
+Instalar dependencia: npm install amqplib dotenv
+
+Crea "cola.js" en el servicio principal:
+
+const amqp = require("amqplib");
+let canal;
+
+async function conectar() {
+  const conexion = await amqp.connect(process.env.RABBITMQ_URL);
+  canal = await conexion.createChannel();
+  await canal.assertExchange(process.env.EXCHANGE, "topic", { durable: true });
+  console.log("[productor] conectado a RabbitMQ");
+}
+
+function publicar(clave, evento) {
+  const cuerpo = Buffer.from(JSON.stringify(evento));
+  return canal.publish(process.env.EXCHANGE, clave, cuerpo, {
+    persistent: true,               // Sobrevive al reinicio del broker
+    contentType: "application/json",
+    messageId: String(evento.id),   // ID estable del hecho para idempotencia
+  });
+}
+
+module.exports = { conectar, publicar };
+
+En el endpoint POST del docente:
+  1. Primero guarda en base de datos / arreglo.
+  2. Luego llama a: publicar(process.env.CLAVE, { tipo: "RecursoConfirmado", ...registro });
+  3. IMPORTANTE: Nombra el evento en PASADO ("PedidoConfirmado", nunca "EnviarCorreo").
+
+--------------------------------------------------------------------------------
+5. CODIGO DEL CONSUMIDOR (Idempotente + Ack Manual + Limite de Reintentos)
+--------------------------------------------------------------------------------
+En el segundo servicio (consumidor), usa este molde completo:
+
+require("dotenv").config();
+const amqp = require("amqplib");
+const fs = require("fs");
+
+const COLA = process.env.COLA || "notificaciones.cola";
+const LIMITE = 3;
+const ARCHIVO_PROCESADOS = "./procesados.json";
+
+// Cargar IDs ya procesados desde disco (sobrevive a reinicios del consumidor)
+const procesados = new Set(
+  fs.existsSync(ARCHIVO_PROCESADOS)
+    ? JSON.parse(fs.readFileSync(ARCHIVO_PROCESADOS, "utf8"))
+    : []
+);
+
+function guardarProcesado(id) {
+  procesados.add(id);
+  fs.writeFileSync(ARCHIVO_PROCESADOS, JSON.stringify([...procesados]));
+}
+
+function procesarEvento(evento) {
+  // Validacion: si el mensaje viene mal formado, lanza error para probar DLQ
+  if (!evento || evento.errorForzado) {
+    throw new Error("Datos invalidos en el evento");
+  }
+  console.log("[consumidor] Procesando evento exitosamente:", evento.id);
+}
+
+async function main() {
+  const conexion = await amqp.connect(process.env.RABBITMQ_URL);
+  const canal = await conexion.createChannel();
+  await canal.assertQueue(COLA, {
+    durable: true,
+    deadLetterExchange: "reintentos",
+    deadLetterRoutingKey: "recurso.confirmado"
+  });
+  canal.prefetch(1); // Un mensaje a la vez
+
+  console.log("[consumidor] Esperando mensajes en", COLA);
+
+  canal.consume(COLA, (mensaje) => {
+    if (mensaje === null) return;
+
+    const id = mensaje.properties.messageId;
+
+    // 1. Verificar Idempotencia
+    if (id && procesados.has(id)) {
+      console.log("[idempotencia] Evento repetido ignorado:", id);
+      return canal.ack(mensaje);
+    }
+
+    // 2. Verificar intentos en encabezado x-death
+    const muertes = mensaje.properties.headers?.["x-death"];
+    const intentos = muertes ? muertes[0].count : 0;
+
+    if (intentos >= LIMITE) {
+      console.error("[DLQ] Limite alcanzado, enviando a notificaciones.muertos");
+      canal.sendToQueue("notificaciones.muertos", mensaje.content, { persistent: true });
+      return canal.ack(mensaje);
+    }
+
+    // 3. Ejecutar logica y confirmar
+    try {
+      const evento = JSON.parse(mensaje.content.toString());
+      procesarEvento(evento);
+      if (id) guardarProcesado(id);
+      canal.ack(mensaje); // Solo aqui el broker borra el mensaje
+    } catch (e) {
+      console.error(`[error] Intento ${intentos + 1} fallido:`, e.message);
+      canal.nack(mensaje, false, false); // false = NO reencolar directo, ir al DLX
+    }
+  }, { noAck: false }); // SIEMPRE false para eventos de dominio
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

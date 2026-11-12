@@ -1,0 +1,156 @@
+================================================================================
+PRACTICA 7: PRUEBAS AUTOMATIZADAS (Unitarias, API, Testcontainers y Contratos)
+================================================================================
+Objetivo: Preparar el codigo del docente con pruebas automatizadas y umbrales de
+cobertura para que el pipeline de CI/CD (Practica 8) pueda verificarlo y desplegarlo
+con un solo comando.
+
+--------------------------------------------------------------------------------
+1. INSTALACION Y CONFIGURACION EN package.json
+--------------------------------------------------------------------------------
+Ejecuta en la carpeta del servicio:
+  npm install --save-dev jest supertest @testcontainers/mongodb testcontainers
+
+Agrega estos scripts exactos en tu "package.json":
+
+"scripts": {
+  "test": "jest --runInBand",
+  "test:unit": "jest --testPathIgnorePatterns int.test",
+  "test:int": "jest int.test --runInBand",
+  "test:cov": "jest --coverage --runInBand"
+}
+
+* Por que "--runInBand": Corre las pruebas en serie para evitar conflictos de red
+o contenedores efimeros y asegurar que el proceso salga limpio.
+
+--------------------------------------------------------------------------------
+2. UMBRAL DE COBERTURA (jest.config.js en la raiz del proyecto)
+--------------------------------------------------------------------------------
+Impide que se despliegue codigo sin probar:
+
+module.exports = {
+  testEnvironment: "node",
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  }
+};
+
+--------------------------------------------------------------------------------
+3. SEPARAR APP DE SERVER (Regla de oro para probar HTTP sin abrir puerto)
+--------------------------------------------------------------------------------
+Si el docente te entrega todo junto en un solo "index.js" con app.listen(3000):
+  1. En "src/app.js": deja todas las rutas y exporta al final:
+     module.exports = app;
+  2. En "src/server.js": importa app y ponlo a escuchar:
+     const app = require("./app");
+     const PORT = process.env.PORT || 3000;
+     app.listen(PORT, () => console.log("Escuchando en", PORT));
+
+--------------------------------------------------------------------------------
+4. PLANTILLA 1: PRUEBA UNITARIA (tests/regla.test.js)
+--------------------------------------------------------------------------------
+Prueba funciones puras de negocio (ej. calculos, estados, validaciones) usando
+la estructura Preparar - Ejecutar - Verificar (AAA):
+
+const { estadoDeTarea } = require("../src/tarea");
+
+describe("Reglas de negocio", () => {
+  test("devuelve COMPLETADA cuando la tarea esta terminada", () => {
+    const tarea = { titulo: "Desplegar", completada: true }; // Preparar
+    const resultado = estadoDeTarea(tarea);                  // Ejecutar
+    expect(resultado).toBe("COMPLETADA");                    // Verificar
+  });
+
+  test("lanza un error cuando falta un dato obligatorio", () => {
+    expect(() => estadoDeTarea({})).toThrow();
+  });
+});
+
+--------------------------------------------------------------------------------
+5. PLANTILLA 2: PRUEBA DE ENDPOINT HTTP CON SUPERTEST (tests/api.test.js)
+--------------------------------------------------------------------------------
+const request = require("supertest");
+const app = require("../src/app");
+
+describe("Endpoints HTTP", () => {
+  test("POST /tareas crea el recurso y responde 201", async () => {
+    const res = await request(app)
+      .post("/tareas")
+      .send({ titulo: "Probar API" });
+    expect(res.status).toBe(201);
+    expect(res.body).toHaveProperty("id");
+  });
+
+  test("POST /tareas sin datos obligatorios responde 400", async () => {
+    const res = await request(app).post("/tareas").send({});
+    expect(res.status).toBe(400);
+  });
+});
+
+* NOTA SI EL ENDPOINT TIENE JWT (Practica 11):
+En tu prueba genera un token valido con `jwt.sign({ sub: "1", rol: "admin" }, process.env.JWT_SECRET)`
+y agregalo en Supertest con `.set("Authorization", "Bearer " + token)`.
+
+--------------------------------------------------------------------------------
+6. PLANTILLA 3: INTEGRACION REAL CON CONTENEDOR EFIMERO (tests/repositorio.int.test.js)
+--------------------------------------------------------------------------------
+Levanta un contenedor MongoDB real con Docker durante la prueba y lo destruye al
+terminar (asegurate de tener Docker Desktop encendido):
+
+const { MongoDBContainer } = require("@testcontainers/mongodb");
+const { crearRepositorio } = require("../src/repositorio");
+
+let contenedor, repo;
+
+beforeAll(async () => {
+  contenedor = await new MongoDBContainer("mongo:7").start();
+  const uri = contenedor.getConnectionString() + "?directConnection=true";
+  repo = await crearRepositorio(uri);
+}, 120000); // 120s de margen por si descarga la imagen mongo:7
+
+afterAll(async () => {
+  if (repo) await repo.cerrar();
+  if (contenedor) await contenedor.stop();
+});
+
+test("guarda un documento en MongoDB real y lo recupera", async () => {
+  await repo.guardar({ titulo: "Prueba Real", completada: false });
+  const doc = await repo.buscarPorTitulo("Prueba Real");
+  expect(doc).not.toBeNull();
+  expect(doc.completada).toBe(false);
+});
+
+--------------------------------------------------------------------------------
+7. PLANTILLA 4: PRUEBA DE CONTRATO ENTRE SERVICIOS (tests/contrato.test.js)
+--------------------------------------------------------------------------------
+1. Crea "contratos/evento.contrato.json":
+{
+  "evento": "TareaCreada",
+  "version": "1.0",
+  "camposObligatorios": ["id", "titulo", "creadaEn"],
+  "tipos": { "id": "number", "titulo": "string", "creadaEn": "string" }
+}
+
+2. Crea "tests/contrato.test.js":
+const contrato = require("../contratos/evento.contrato.json");
+const { construirEventoTareaCreada } = require("../src/eventos");
+
+test("el evento publicado cumple el contrato acordado con el consumidor", () => {
+  const evento = construirEventoTareaCreada({ id: 1, titulo: "Despliegue" });
+  for (const campo of contrato.camposObligatorios) {
+    expect(evento).toHaveProperty(campo);
+    expect(typeof evento[campo]).toBe(contrato.tipos[campo]);
+  }
+});
+
+--------------------------------------------------------------------------------
+8. COMANDOS DE VERIFICACION ANTES DE SUBIR AL PIPELINE
+--------------------------------------------------------------------------------
+  npm test
+  echo $LASTEXITCODE   # En PowerShell debe devolver 0 (en Bash: echo $?)
+  npm run test:cov     # Verifica que supere el coverageThreshold

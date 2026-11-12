@@ -1,0 +1,147 @@
+================================================================================
+PRACTICA 8: PIPELINE CI/CD CON GITHUB ACTIONS (De un Commit a Imagen en GHCR)
+================================================================================
+Objetivo: Automatizar las pruebas, el analisis de calidad/seguridad y el
+despliegue de la imagen Docker del codigo del docente hacia el registro de
+contenedores de GitHub (ghcr.io).
+
+--------------------------------------------------------------------------------
+1. PREPARACION LOCAL ANTES DE SUBIR A GITHUB
+--------------------------------------------------------------------------------
+El pipeline usa "npm ci" y "eslint". Asegurate de tener en la raiz del proyecto:
+  1. Archivo "Dockerfile" funcional.
+  2. Archivo "package-lock.json" sincronizado (corre `npm install` local si cambiaste algo).
+  3. Archivo ".gitignore" con:
+     node_modules/
+     coverage/
+     .env
+     registros/
+  4. Instalar ESLint si el pipeline lo pide:
+     npm install --save-dev eslint
+     npx eslint --init
+
+--------------------------------------------------------------------------------
+2. ARCHIVO DEL PIPELINE COMPLETO (.github/workflows/ci.yml)
+--------------------------------------------------------------------------------
+Crea la carpeta ".github/workflows" en la raiz del repositorio y guarda adentro
+el archivo "ci.yml". Incluye:
+  - Matriz de versiones Node (20 y 22) con cache de npm.
+  - Artefacto de cobertura descargable.
+  - Job en paralelo de Calidad (ESLint + npm audit).
+  - Job de Construccion y Publicacion de imagen en ghcr.io con etiquetas trazables
+    (SHA del commit, version semantica y latest condicional solo en main).
+
+name: CI-CD Microservicio
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - name: Traer el codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js ${{ matrix.node }} con cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Instalar dependencias exactas
+        run: npm ci
+
+      - name: Ejecutar suite de pruebas y cobertura
+        env:
+          JWT_SECRET: clave-de-prueba-ci-2026
+        run: npm run test:cov
+
+      - name: Publicar reporte de cobertura como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-node${{ matrix.node }}-${{ github.sha }}
+          path: coverage/
+          retention-days: 7
+
+  calidad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+
+      - name: Analisis estatico con ESLint
+        run: npx eslint src tests --max-warnings 0
+
+      - name: Escaneo de vulnerabilidades en dependencias
+        run: npm audit --audit-level=critical
+
+  imagen:
+    needs: [pruebas, calidad]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Iniciar sesion en GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar la imagen Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:1.0.0
+            ${{ github.ref == 'refs/heads/main' && format('ghcr.io/{0}:latest', github.repository) || '' }}
+
+* NOTA IMPORTANTE: Si el repositorio de GitHub tiene letras MAYUSCULAS en tu
+usuario o nombre de repo, Docker dara error porque exige minusculas en el tag.
+Si ese es tu caso, escribe el nombre en minusculas fijo:
+  ghcr.io/tu_usuario_minuscula/tu_repo_minuscula:1.0.0
+
+--------------------------------------------------------------------------------
+3. HACER PUBLICO EL PAQUETE EN GITHUB (Clave para Kubernetes Practica 9)
+--------------------------------------------------------------------------------
+Por defecto, GitHub publica la imagen en `ghcr.io` como PRIVADA. Para que tu
+cluster de Kubernetes (Practica 9) pueda descargarla sin dar error `ImagePullBackOff`:
+  1. Ve a la pagina principal de tu repositorio en GitHub.
+  2. A la derecha, haz clic en la seccion "Packages" y entra al paquete.
+  3. Abajo a la derecha entra a "Package settings".
+  4. Baja hasta "Danger Zone" -> "Change visibility" -> elige "Public".
+
+--------------------------------------------------------------------------------
+4. PROTEGER LA RAMA PRINCIPAL (Settings -> Branches)
+--------------------------------------------------------------------------------
+1. En GitHub ve a: Settings -> Branches -> Add branch protection rule (o Ruleset).
+2. Branch name pattern: `main`
+3. Activa:
+   [x] Require a pull request before merging
+   [x] Require status checks to pass before merging
+       -> Busca y selecciona: `pruebas (20)`, `pruebas (22)` y `calidad`
+   [x] Require branches to be up to date before merging
+   [x] Do not allow bypassing the above settings / Block force pushes
+
+--------------------------------------------------------------------------------
+5. COMANDOS PARA DESCARGAR Y PROBAR LA IMAGEN PUBLICADA
+--------------------------------------------------------------------------------
+  docker pull ghcr.io/<tu-usuario>/<tu-repo>:1.0.0
+  docker run --rm -p 3000:3000 -e JWT_SECRET=secreto123 ghcr.io/<tu-usuario>/<tu-repo>:1.0.0

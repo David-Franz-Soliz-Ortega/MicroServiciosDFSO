@@ -1,0 +1,320 @@
+================================================================================
+ANALISIS Y CODIGO LIMPIO DEL CHEAT SHEET OFICIAL (2do Parcial COM-600 2/2026)
+================================================================================
+Fuente: "Cheat Sheet Practico COM-600 - Segundo Parcial 2-2026.docx"
+Alcance exacto del examen: Practicas 6, 7, 8, 9 y 10.
+
+--------------------------------------------------------------------------------
+PISTAS CLAVE QUE REVELA ESTE CHEAT SHEET SOBRE EL EXAMEN
+--------------------------------------------------------------------------------
+1. INYECCION DE DEPENDENCIAS EN `src/app.js` (Practica 7 + Practica 6):
+   Fijate que en la seccion P7 del Cheat Sheet el docente NO importa `app` directo,
+   sino que usa `const { crearApp } = require("../src/app")` y le pasa un mock:
+   `crearApp({ publicar })`.
+   -> Esto significa que el codigo que les pasara el docente tendra una funcion
+      fabrica `crearApp({ publicar, ... })` para poder probar el endpoint HTTP
+      con `jest.fn()` sin necesitar que RabbitMQ este encendido durante el test.
+
+2. COLA DE MUERTOS (DLQ) CON EXCHANGE `fanout` (Practica 6):
+   En vez de mandar a la cola muerta con `sendToQueue`, el Cheat Sheet enlaza
+   la cola principal con `deadLetterExchange: "muertos"` (tipo `fanout`) unido a
+   `correo.muertos`. Asi, al hacer `canal.nack(m, false, false)`, RabbitMQ
+   mueve el mensaje automaticamente a la DLQ.
+
+3. IDEMPOTENCIA CON `ev.idEvento` (Practica 6):
+   El Cheat Sheet busca `ev.idEvento` dentro del JSON del mensaje y usa un `Set`:
+   `if (procesados.has(ev.idEvento)) return canal.ack(m);`
+
+4. RECARGA DE PROMETHEUS (`--web.enable-lifecycle`) (Practica 10):
+   El Cheat Sheet advierte que `curl -X POST localhost:9090/-/reload` da error
+   `403` a menos que agregues `command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-lifecycle"]`
+   en el `docker-compose` o reinicies con `docker compose restart prometheus`.
+
+5. ETIQUETA GIT FINAL DEL EXAMEN:
+   En "Comandos de apoyo" aparece el comando exacto de entrega del examen:
+   `git tag examen-p2 && git push --tags`
+
+================================================================================
+BLOQUES DEL CHEAT SHEET LISTOS PARA COPIAR Y PEGAR (SIN ERRORES DE FORMATO)
+================================================================================
+
+--------------------------------------------------------------------------------
+[P6] MENSAJERIA ASINCRONA CON RABBITMQ
+--------------------------------------------------------------------------------
+Regla: Productor -> exchange -> (binding + clave) -> cola -> consumidor.
+       El productor NUNCA nombra la cola.
+
+1. docker-compose.yml:
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports: ["5672:5672", "15672:15672"] # AMQP | consola
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes: ["rabbit_datos:/var/lib/rabbitmq"]
+volumes:
+  rabbit_datos:
+
+2. Productor (`npm i amqplib`):
+const amqp = require("amqplib");
+const con = await amqp.connect(process.env.RABBITMQ_URL);
+const canal = await con.createChannel();
+await canal.assertExchange("eventos", "topic", { durable: true });
+canal.publish(
+  "eventos",
+  "inscripcion.confirmada",
+  Buffer.from(JSON.stringify(evento)),
+  { persistent: true, contentType: "application/json" }
+);
+// En .env: RABBITMQ_URL=amqp://admin:admin123@localhost:5672
+
+3. Consumidor con ack manual + DLQ + Idempotencia:
+const procesados = new Set();
+
+await canal.assertExchange("eventos", "topic", { durable: true });
+await canal.assertExchange("muertos", "fanout", { durable: true });
+await canal.assertQueue("correo.muertos", { durable: true });
+await canal.bindQueue("correo.muertos", "muertos", "");
+
+await canal.assertQueue("correo", {
+  durable: true,
+  deadLetterExchange: "muertos"
+});
+await canal.bindQueue("correo", "eventos", "inscripcion.*");
+
+canal.prefetch(1); // 1 sin confirmar a la vez
+canal.consume("correo", async (m) => {
+  if (!m) return;
+  const ev = JSON.parse(m.content.toString());
+
+  // Idempotencia:
+  if (procesados.has(ev.idEvento)) return canal.ack(m);
+
+  // Conteo de intentos previos por x-death:
+  const intentos = m.properties.headers?.["x-death"]?.[0]?.count ?? 0;
+
+  try {
+    await procesar(ev);
+    procesados.add(ev.idEvento);
+    canal.ack(m); // recien aqui se borra de RabbitMQ
+  } catch (err) {
+    canal.nack(m, false, false); // (msg, allUpTo=false, requeue=false -> va al DLX)
+  }
+}, { noAck: false });
+
+--------------------------------------------------------------------------------
+[P7] PRUEBAS AUTOMATIZADAS (JEST + SUPERTEST + MOCK + CONTRATO)
+--------------------------------------------------------------------------------
+Instalacion: `npm i -D jest supertest @testcontainers/mongodb testcontainers`
+
+1. jest.config.js:
+module.exports = {
+  testEnvironment: "node",
+  collectCoverageFrom: ["src/**/*.js", "!src/server.js"],
+  coverageThreshold: { global: { lines: 80, branches: 70 } }
+};
+
+2. Prueba de Endpoint HTTP con Mock (`crearApp({ publicar })`):
+const request = require("supertest");
+const { crearApp } = require("../src/app");
+
+test("POST /tareas responde 201 y publica evento", async () => {
+  const publicar = jest.fn().mockResolvedValue(true);
+  const res = await request(crearApp({ publicar }))
+    .post("/tareas")
+    .send({ titulo: "Estudiar" });
+
+  expect(res.status).toBe(201);
+  expect(publicar).toHaveBeenCalledTimes(1);
+  expect(publicar).toHaveBeenCalledWith(
+    "tarea.creada",
+    expect.objectContaining({ id: res.body.id })
+  );
+});
+
+test("POST /tareas invalido responde 400 y NO publica", async () => {
+  const publicar = jest.fn();
+  const res = await request(crearApp({ publicar }))
+    .post("/tareas")
+    .send({});
+
+  expect(res.status).toBe(400);
+  expect(publicar).not.toHaveBeenCalled();
+});
+
+3. Prueba de Contrato:
+const contrato = require("../contratos/tarea.contrato.json");
+for (const campo of contrato.camposObligatorios) {
+  expect(evento).toHaveProperty(campo);
+  expect(typeof evento[campo]).toBe(contrato.tipos[campo]);
+}
+
+--------------------------------------------------------------------------------
+[P8] PIPELINE CI/CD CON GITHUB ACTIONS (.github/workflows/ci.yml)
+--------------------------------------------------------------------------------
+name: CI
+on: [push, pull_request]
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { node: ["20", "22"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ matrix.node }}, cache: npm }
+      - run: npm ci
+      - run: npm run test:cov
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: cobertura-${{ matrix.node }}, path: coverage/ }
+
+  calidad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: npm }
+      - run: npm ci
+      - run: npx eslint src --max-warnings 0
+      - run: npm audit --audit-level=critical
+
+  imagen:
+    needs: [pruebas, calidad]
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:1.0.0
+
+--------------------------------------------------------------------------------
+[P9] KUBERNETES, HELM Y GITOPS (Manifiesto Todo-en-Uno `k8s/todo.yaml`)
+--------------------------------------------------------------------------------
+El Cheat Sheet une los recursos con `---` para aplicarlos de golpe:
+
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: tareas-config }
+data: { APP_ENTORNO: "examen", APP_PAGINA_TAM: "20" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: tareas }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: tareas } }
+  template:
+    metadata: { labels: { app: tareas } }
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/usuario/tareas-api:1.0.0 # NUNCA latest
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: tareas-config }
+            - secretRef: { name: tareas-secret }
+          readinessProbe:
+            httpGet: { path: /salud, port: 3000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /salud, port: 3000 }
+            initialDelaySeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata: { name: tareas }
+spec:
+  selector: { app: tareas }
+  ports: [{ port: 80, targetPort: 3000 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: tareas }
+spec:
+  rules:
+    - host: tareas.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tareas
+                port: { number: 80 }
+
+Comandos rapidos K8s del Cheat Sheet:
+  k3d cluster create com600 --agents 2 -p "8080:80@loadbalancer"
+  kubectl create secret generic tareas-secret --from-literal=APP_CLAVE_API=valor
+  kubectl apply -f k8s/
+  kubectl get deploy,pods,svc,ingress,endpoints
+  kubectl exec deploy/tareas -- printenv APP_ENTORNO
+  curl.exe -H "Host: tareas.localhost" http://localhost:8080/salud
+
+--------------------------------------------------------------------------------
+[P10] OBSERVABILIDAD COMPACTA (Logs + Correlacion + Metricas + Trazas)
+--------------------------------------------------------------------------------
+1. Registro Pino con creacion automatica de carpeta (`mkdir: true`):
+const pino = require("pino");
+const registro = pino({
+  base: { servicio: process.env.SERVICIO || "tareas-api" },
+  timestamp: pino.stdTimeFunctions.isoTime,
+  formatters: { level: (e) => ({ nivel: e }) },
+}, pino.multistream([
+  { stream: process.stdout },
+  { stream: pino.destination({ dest: "./registros/api.log", mkdir: true }) }
+]));
+
+2. Middleware de correlacion e inyeccion en `app.js`:
+const { randomUUID } = require("crypto");
+app.use((req, res, next) => {
+  req.idCorrelacion = req.get("x-correlation-id") || randomUUID();
+  res.set("x-correlation-id", req.idCorrelacion);
+  req.registro = registro.child({
+    idCorrelacion: req.idCorrelacion,
+    metodo: req.method,
+    ruta: req.path
+  });
+  next();
+});
+// Nota: Si publicas en RabbitMQ, mete `idCorrelacion: req.idCorrelacion` dentro del JSON del evento!
+
+3. Metricas (`prom-client`) con Histograma HTTP + Contador de negocio:
+const cliente = require("prom-client");
+cliente.collectDefaultMetrics();
+const duracion = new cliente.Histogram({
+  name: "http_request_duration_seconds",
+  help: "Duracion HTTP",
+  labelNames: ["metodo", "ruta", "codigo"],
+  buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 2, 5]
+});
+const creadas = new cliente.Counter({
+  name: "tareas_creadas_total",
+  help: "Tareas creadas"
+});
+
+app.use((req, res, next) => {
+  const fin = duracion.startTimer();
+  res.on("finish", () => fin({
+    metodo: req.method,
+    ruta: req.route ? req.route.path : "sin_ruta",
+    codigo: res.statusCode
+  }));
+  next();
+});
+app.get("/metrics", async (_q, res) => {
+  res.set("Content-Type", cliente.register.contentType);
+  res.end(await cliente.register.metrics());
+});
+// Llamar a `creadas.inc()` dentro del POST exitoso.
