@@ -1,0 +1,16 @@
+{
+  "evento": "ReservaConfirmada",
+  "version": "1.0",
+  "camposObligatorios": ["idEvento", "tipo", "reservaId", "laboratorio", "docente", "correo", "inicio", "fin", "ocurridoEn"],
+  "tipos": {
+    "idEvento": "string",
+    "tipo": "string",
+    "reservaId": "string",
+    "laboratorio": "string",
+    "docente": "string",
+    "correo": "string",
+    "inicio": "number",
+    "fin": "number",
+    "ocurridoEn": "string"
+  }
+}
